@@ -2,13 +2,108 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, log_loss
 from tqdm.notebook import tqdm
 import numpy as np
 
 from src.loss_functions import *
-from src.metrics import *
 from src.noise import *
+
+from sklearn.linear_model import LogisticRegression as LR
+from sklearn.svm import  LinearSVC
+from sklearn.neural_network import MLPClassifier
+
+
+DEFAULT_LR_PARAMS =  {
+        'fit_intercept': True,
+        # 'intercept_scaling': 1.0,
+        'class_weight': None,
+        'penalty': None,
+        # 'C': 1.0,
+        'tol': 1e-4,
+        'solver': 'saga',
+        'warm_start': True,
+        'max_iter': int(1e8),
+        'verbose': False,
+        'n_jobs': 1
+        #'random_state':2024
+        }
+
+DEFAULT_SVM_PARAMS = {
+        'fit_intercept': True,
+        'intercept_scaling': 1.0,
+        'class_weight': None,
+        'loss': "hinge",
+        'penalty': 'l2',
+        'C': 1.0,
+        'tol': 1e-4,
+        'dual': True,
+        #'random_state': None,
+        'verbose': False
+        #'random_state':2024
+        }
+
+DEFAULT_NN_PARAMS = {
+        'solver': 'lbfgs',
+        'alpha': 1e-5,
+        'hidden_layer_sizes': (5, 2),
+        #'random_state':2024,
+        'max_iter': int(1e8)
+        }
+
+
+def train_model_ours(X_train, y_train, X_test, y_test, seed, model_type="LR"):
+    # Set random seed for reproducibility
+
+    np.random.seed(seed)
+    
+    # Choose the model based on the input
+    if model_type == "LR":
+        model = LR(**DEFAULT_LR_PARAMS, random_state = seed)
+    elif model_type == "SVM":
+        model = LinearSVC(**DEFAULT_SVM_PARAMS, random_state = seed)
+    elif model_type == "NN":
+        model = MLPClassifier(**DEFAULT_NN_PARAMS, random_state = seed)
+    else:
+        raise ValueError("Unsupported model type. Choose 'LR' or 'SVM'.")
+
+    # Train the model using noisy labels (simulating the impact of label noise)
+    model.fit(X_train, y_train)
+
+    # Predictions for training and test sets
+    train_preds = model.predict(X_train)
+    test_preds = model.predict(X_test)
+
+    # Calculate accuracies
+    train_acc = accuracy_score(y_train, train_preds)
+    test_acc = accuracy_score(y_test, test_preds)
+
+    if model_type == "SVM":
+        train_probs = model.decision_function(X_train)
+        test_probs = model.decision_function(X_test)
+        
+    else:
+        train_probs = model.predict_proba(X_train)[:, 1]
+        test_probs = model.predict_proba(X_test)[:, 1]
+        
+    # Calculate log losses
+    train_loss = log_loss(y_train, train_probs)
+    test_loss = log_loss(y_test, test_probs)
+        
+
+    results = (train_acc,
+                test_acc,
+                train_probs,
+                test_probs,
+                train_loss,
+                test_loss,
+                train_preds,
+                test_preds
+        )
+        
+
+    return model, results
+
 
 # Define the Logistic Regression model
 class LogisticRegression(nn.Module):
@@ -43,6 +138,8 @@ def train_model(X_train, y_train, y_train_noisy, X_test, y_test,  seed, num_epoc
         noise_transition_matrix = torch.tensor(noise_transition_matrix, dtype=torch.float32).to(device)
     
     torch.manual_seed(seed)
+    np.random.seed(seed)
+    
 
     # Convert to PyTorch tensors and move them to the device
     X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
@@ -64,8 +161,8 @@ def train_model(X_train, y_train, y_train_noisy, X_test, y_test,  seed, num_epoc
         model = NeuralNet(X_train.shape[1]).to(device)
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=0.01)
-    #optimizer = optim.Adam(model.parameters(), lr=0.01)
+    #optimizer = optim.SGD(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
 
     # Train the model
     for epoch in (range(num_epochs)):
@@ -95,20 +192,20 @@ def train_model(X_train, y_train, y_train_noisy, X_test, y_test,  seed, num_epoc
 
     #Get final train losses
     if correction_type == 'forward':
-        noisy_train_loss = forward_loss(train_outputs, y_train_noisy, noise_transition_matrix, device)
+        noisy_train_loss = forward_loss(train_outputs, y_train_noisy, noise_transition_matrix, device).item()
 
-        clean_train_loss = forward_loss(train_outputs, y_train, noise_transition_matrix, device)
-        clean_test_loss = forward_loss(test_outputs, y_test, noise_transition_matrix, device)
+        clean_train_loss = forward_loss(train_outputs, y_train, noise_transition_matrix, device).item()
+        clean_test_loss = forward_loss(test_outputs, y_test, noise_transition_matrix, device).item()
     elif correction_type == 'backward':
-        noisy_train_loss = backward_loss(train_outputs, y_train_noisy, noise_transition_matrix, device)
+        noisy_train_loss = backward_loss(train_outputs, y_train_noisy, noise_transition_matrix, device).item()
 
-        clean_train_loss = backward_loss(train_outputs, y_train, noise_transition_matrix, device)
-        clean_test_loss = backward_loss(test_outputs, y_test, noise_transition_matrix, device)
+        clean_train_loss = backward_loss(train_outputs, y_train, noise_transition_matrix, device).item()
+        clean_test_loss = backward_loss(test_outputs, y_test, noise_transition_matrix, device).item()
     else:
-        noisy_train_loss = criterion(train_outputs, y_train_noisy)
+        noisy_train_loss = criterion(train_outputs, y_train_noisy).item()
 
-        clean_train_loss = criterion(train_outputs, y_train)
-        clean_test_loss = criterion(test_outputs, y_test)
+        clean_train_loss = criterion(train_outputs, y_train).item()
+        clean_test_loss = criterion(test_outputs, y_test).item()
 
 
     # Evaluate the model
@@ -135,7 +232,6 @@ def train_model(X_train, y_train, y_train_noisy, X_test, y_test,  seed, num_epoc
                 clean_test_acc,
                 test_probs
                 )
-
     return model, results
 
 def train_LR_no_test(X_train, y_train,  seed, num_epochs=50, correction_type="forward", noise_transition_matrix=None):

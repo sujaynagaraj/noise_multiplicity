@@ -18,6 +18,8 @@ from operator import xor
 
 from folktables import ACSDataSource, ACSEmployment
 
+
+
 class MetricsStorage:
     def __init__(self, loss_types, noise_levels):
         self.data = {loss: {noise_level: {metric: [] for metric in self.metrics()}
@@ -26,7 +28,8 @@ class MetricsStorage:
     def metrics(self):
         return ['regret_train', 'disagreement_train',  'regret_test', 'disagreement_test',  
                 'noisy_train_loss', 'clean_train_loss', 'clean_test_loss',
-                'noisy_train_acc', 'clean_train_acc', 'clean_test_acc' ]
+                'noisy_train_acc', 'clean_train_acc', 'clean_test_acc' , 
+                'train_loss', 'test_loss', 'train_acc', 'test_acc']
 
     def add_metric(self, loss, noise_level, metric, value):
         self.data[loss][noise_level][metric].append(value)
@@ -43,16 +46,14 @@ class MetricsStorage:
 
 def simulate_noise_and_train_model(noise_levels, m, max_iter, d, X_train, y_train, X_test, y_test, p_y_x = np.array([0.5,0.5]), noise_type = "class_independent", uncertainty_type="backward",  model_type = "LR" , fixed_class=0, fixed_noise=0.2, feature_weights=None):
     
-    if uncertainty_type == "backward":
+    if uncertainty_type == "forward":
+        loss_types = ["BCE", "backward", "forward"]
+
+    else: # backward
         loss_types = ["BCE"]
 
-    else: # forward
-        #loss_types = ["BCE", "backward", "forward"]
-        loss_types = ["BCE"]
-    
     metrics = MetricsStorage(loss_types, noise_levels)
     
-
     for base_seed, flip_p in (enumerate(tqdm(noise_levels))):
 
         if noise_type == "class_independent":
@@ -63,10 +64,10 @@ def simulate_noise_and_train_model(noise_levels, m, max_iter, d, X_train, y_trai
             yn_train, noise_transition_dict = generate_instance_dependent_noise(y_train, X_train, flip_p, feature_weights)
 
         
-        if uncertainty_type == "backward":
-            y_vec = yn_train
-        else: # forward
+        if uncertainty_type == "forward":
             y_vec = y_train
+        else: # backward
+            y_vec = yn_train
 
 
         preds_train_dict = {loss: [] for loss in loss_types}
@@ -76,12 +77,11 @@ def simulate_noise_and_train_model(noise_levels, m, max_iter, d, X_train, y_trai
 
         for seed in (range(1, max_iter+1)):
 
-            if uncertainty_type == "backward":
-                u_vec = infer_u(y_vec, noise_transition_matrix, p_y_x, seed=base_seed + seed)
-
-            else:
+            if uncertainty_type == "forward":
                 # Using a forward model, so get u directly
                 u_vec = get_u(y_vec, noise_transition_matrix, seed=base_seed + seed)
+            else:
+                u_vec = infer_u(y_vec, noise_transition_matrix, p_y_x, seed=base_seed + seed)
 
             if noise_type == "instance_dependent":
                 bool_flag = True
@@ -102,30 +102,77 @@ def simulate_noise_and_train_model(noise_levels, m, max_iter, d, X_train, y_trai
 
             flipped_labels = flip_labels(y_vec, u_vec)
             
-            for loss in loss_types:
-                model,  (noisy_train_loss,
-                        clean_train_loss, 
-                        noisy_train_acc,
-                        clean_train_acc,
-                        train_probs,
-                        clean_test_loss, 
-                        clean_test_acc,
-                        test_probs
-                        ) = train_model(X_train, y_train, flipped_labels, X_test, y_test, seed=base_seed + seed, num_epochs=50, batch_size=32, model_type = model_type, correction_type=loss, noise_transition_matrix=noise_transition_matrix)
-                
-                preds_train = (train_probs > 0.5).astype(int)
-                preds_test = (test_probs > 0.5).astype(int)
+            if uncertainty_type == "forward":
+                for loss in loss_types:
+                    model,  (noisy_train_loss,
+                            clean_train_loss, 
+                            noisy_train_acc,
+                            clean_train_acc,
+                            train_probs,
+                            clean_test_loss, 
+                            clean_test_acc,
+                            test_probs
+                            ) = train_model(X_train, y_train, flipped_labels, X_test, y_test, seed=2024, num_epochs=50, batch_size=512, model_type = model_type, correction_type=loss, noise_transition_matrix=noise_transition_matrix)
+                    
+                    preds_train = (train_probs > 0.5).astype(int)
+                    preds_test = (test_probs > 0.5).astype(int)
 
-                preds_train_dict[loss].append(preds_train)
-                preds_test_dict[loss].append(preds_test)
+                    preds_train_dict[loss].append(preds_train)
+                    preds_test_dict[loss].append(preds_test)
 
-                metrics.add_metric(loss, flip_p, "noisy_train_loss", noisy_train_loss)
-                metrics.add_metric(loss, flip_p, "clean_train_loss", clean_train_loss)
-                metrics.add_metric(loss, flip_p, "noisy_train_acc", noisy_train_acc*100)
-                metrics.add_metric(loss, flip_p, "clean_train_acc", clean_train_acc*100)
-                metrics.add_metric(loss, flip_p, "clean_test_loss", clean_test_loss)
-                metrics.add_metric(loss, flip_p, "clean_test_acc", clean_test_acc*100)
-            
+                    metrics.add_metric(loss, flip_p, "noisy_train_loss", noisy_train_loss)
+                    metrics.add_metric(loss, flip_p, "clean_train_loss", clean_train_loss)
+                    metrics.add_metric(loss, flip_p, "noisy_train_acc", noisy_train_acc*100)
+                    metrics.add_metric(loss, flip_p, "clean_train_acc", clean_train_acc*100)
+                    metrics.add_metric(loss, flip_p, "clean_test_loss", clean_test_loss)
+                    metrics.add_metric(loss, flip_p, "clean_test_acc", clean_test_acc*100)
+
+            elif uncertainty_type == "backward_torch":
+                for loss in loss_types:
+                    model,  (noisy_train_loss,
+                                train_loss, 
+                                _,
+                                train_acc,
+                                train_probs,
+                                test_loss, 
+                                test_acc,
+                                test_probs
+                                ) = train_model(X_train, y_train, flipped_labels, X_test, y_test, seed=2024, num_epochs=50, batch_size=512, model_type = model_type, correction_type=loss)
+                        
+                    preds_train = (train_probs > 0.5).astype(int)
+                    preds_test = (test_probs > 0.5).astype(int)
+
+                    preds_train_dict[loss].append(preds_train)
+                    preds_test_dict[loss].append(preds_test)
+
+                    metrics.add_metric(loss, flip_p, "train_loss", train_loss)
+                    metrics.add_metric(loss, flip_p, "train_acc", train_acc*100)
+                    metrics.add_metric(loss, flip_p, "test_loss", test_loss)
+                    metrics.add_metric(loss, flip_p, "test_acc", test_acc*100)
+
+            else: #backward_sk
+                for loss in loss_types:
+                    model,  (train_acc,
+                            test_acc,
+                            train_probs,
+                            test_probs,
+                            train_loss,
+                            test_loss,
+                            train_preds,
+                            test_preds
+                            ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
+                    
+                    # train_preds = (train_probs > 0.5).astype(int)
+                    # train_preds = (test_probs > 0.5).astype(int)
+
+                    preds_train_dict[loss].append(train_preds)
+                    preds_test_dict[loss].append(test_preds)
+
+                    metrics.add_metric(loss, flip_p, "train_loss", train_loss)
+                    metrics.add_metric(loss, flip_p, "train_acc", train_acc*100)
+                    metrics.add_metric(loss, flip_p, "test_loss", test_loss)
+                    metrics.add_metric(loss, flip_p, "test_acc", test_acc*100)
+
             typical_count += 1
 
             if typical_count == m:
@@ -133,7 +180,7 @@ def simulate_noise_and_train_model(noise_levels, m, max_iter, d, X_train, y_trai
         
         for loss in loss_types:
             predictions_train = np.array(preds_train_dict[loss])
-            print(predictions_train)
+
             predictions_test = np.array(preds_test_dict[loss])
 
             try:

@@ -534,28 +534,76 @@ def plot_boxplots_with_condition(ambiguity_rates, disagreement_rates, X, groups,
     else:
         plt.show()
 
-
-
-
-def plot_metric(metrics, loss_function, metric, ax=None):
+def plot_metric(metrics, metric, ax=None):
     # Prepare the data
-    noise_levels = list(metrics.data[loss_function].keys())
-    values = [metrics.data[loss_function][noise][metric] for noise in noise_levels]
+    loss_functions = list(metrics.data.keys())
+    
+    noise_levels = list(set(noise for lf in loss_functions for noise in metrics.data[lf].keys()))
+    rows = []
+    
+    color_indices = np.array([0, 100, 200, 300, 400])
+    
+    for loss_function in loss_functions:
+        for noise in noise_levels:
+            if noise in metrics.data[loss_function]:
+                for i, value in enumerate(metrics.data[loss_function][noise][metric]):
+                    color = 'lightgray' if i not in color_indices else 'bright'
+                    rows.append({
+                        'Noise Level (%)': round(noise * 100),  # Assume noise is a fraction
+                        'Rate (%)': value,
+                        'Loss Function': loss_function,
+                        'Index': i,
+                        'Color': color
+                    })
     
     # Create a DataFrame suitable for Seaborn
-    df = pd.DataFrame({
-        'Noise Rate': [noise for noise in noise_levels for _ in metrics.data[loss_function][noise][metric]],
-        'Metric': [value for values in values for value in values]
-    })
-    
+    df = pd.DataFrame(rows)
+
     # Create the plot
     ax = ax or plt.gca()
-    sns.boxplot(x='Noise Rate', y='Metric', data=df, ax=ax, color='#5edb8a', showfliers=False)
-    sns.stripplot(x='Noise Rate', y='Metric', data=df, ax=ax, color='black', jitter=True, size=5, alpha=0.8)
+    if loss_functions != 1:
+        sns.boxplot(x='Noise Level (%)', y='Rate (%)', hue='Loss Function', data=df, ax=ax, palette="Set2",  whis=np.inf)
+    else:
+        sns.boxplot(x='Noise Level (%)', y='Rate (%)', data=df, ax=ax, palette="Set2",  whis=np.inf)
+    # Scatter plot with or without color
+
+    bright_colors = ['#FF6347', '#4682B4', '#32CD32', '#FFD700', '#DA70D6']
     
+    sns.stripplot(x="Noise Level (%)", y="Rate (%)", hue="Loss Function", data=df, jitter=True, dodge=True,
+                           size=0.5, linewidth=5, edgecolor="gray", ax=ax, alpha = 0.5)
+    
+    if "disagreement" in metric or "regret" in metric:
+        # Determine offsets based on unique indices in the plot
+        unique_indices = np.unique(df['Index'])
+        offsets = np.linspace(-0.2, 0.2, num=len(unique_indices))
+        index_to_offset = {index: offset for index, offset in zip(unique_indices, offsets)}
+
+        for i, item in enumerate(color_indices):
+            data_subset = df[df["Index"] == item]
+            if len(loss_functions) != 1:
+                # Plot using a specific color from the bright_colors list, setting markers to be transparent with colored edges
+                sns.stripplot(x="Noise Level (%)", y="Rate (%)", hue="Loss Function", data=data_subset, jitter=True, dodge=True,
+                              marker='o', facecolors='none', size=5, alpha = 0.8, linewidth=5, edgecolor=bright_colors[i], ax=ax)
+            else:
+                # Adjust x positions manually
+                noise_levels = data_subset['Noise Level (%)'].unique()
+                for noise in noise_levels:
+                    subset = data_subset[data_subset['Noise Level (%)'] == noise]
+                    x = np.array([noise_levels.tolist().index(noise) + index_to_offset[item]] * len(subset))
+                    y = subset['Rate (%)']
+                    ax.scatter(x, y, color=bright_colors[i], edgecolor='none', s=100, zorder = 5, alpha = 0.8)
+
+    # Add legend and adjust plot details
+    handles, labels = ax.get_legend_handles_labels()
+    l = plt.legend(handles[:len(loss_functions)], labels[:len(loss_functions)], title='Loss Function')
+    ax.add_artist(l)
+
     # Set plot title and labels if ax is None
     if ax is None:
-        ax.set_title(f'{metric} by Noise Rate for {loss_function}')
-        ax.set_xlabel('Noise Rate')
-        ax.set_ylabel(metric.capitalize())
+        ax.set_title(f'{metric} by Noise Level Across Loss Functions')
+        ax.set_xlabel('Noise Level (%)')
+        ax.set_ylabel('Rate (%)')
         plt.show()
+    return df
+# Note: Ensure the 'metrics' object and the 'metric' variable are properly defined before calling this function.
+
