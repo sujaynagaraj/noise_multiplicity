@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 declare -a noise_types=("class_independent" "class_conditional")
-declare -a uncertainty_types=("backward_sk" "backward_torch" "forward")
+declare -a uncertainty_types=("backward_sk" "forward")
 declare -a model_types=("LR" "NN")
 declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer")
 
 
 for i in {0..0}
 do
-    for j in {0..2}
+    for j in {0..1}
     do
         for k in {0..1}
         do

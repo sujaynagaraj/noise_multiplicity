@@ -5,27 +5,81 @@ import pickle as pkl
 from sklearn.datasets import fetch_openml
 from sklearn.model_selection import train_test_split
 from sklearn.utils import shuffle, resample
-
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-
 import pandas as pd
-
 import os
 
+def load_metrics(model_type, noise_type, uncertainty_type, metric, group = "age",  dataset = 'cshock_eicu', fixed_class = None, fixed_noise = None, epsilon = 0.1):
+    
+    parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
+    
+    #metrics_dir = os.path.join(parent_dir, "results", "raw", "metrics", dataset, model_type, noise_type)
+    parent_dir = "/scratch/hdd001/home/snagaraj/"
+    metrics_dir = os.path.join(parent_dir, "results", "metrics", dataset, model_type, noise_type)
 
+    # Prepare the data
+    
+    if uncertainty_type == "forward":
+        loss_functions = ["BCE", "forward", "backward"]
+    else:
+        loss_functions = ["BCE"]
 
+    
+    if ("disagreement" in metric) or ("regret" in metric):
+        
+        _, _, y_train, y_test, group_train, group_test = load_dataset_splits(dataset, group = group)
+        
+        group_vec = group_test if "test" in metric else group_train
+        label_vec = y_test if "test" in metric else y_test
+        
+        
+    rows = []
+    
+    for loss_function in loss_functions:
+        for file_name in os.listdir(metrics_dir):
+            if file_name.endswith('.pkl') and uncertainty_type in file_name:
+                path = os.path.join(metrics_dir, file_name)
 
-def save_data(X_train, X_test, y_train, y_test, filename, path):
-    with open(path+filename+".pkl",'wb') as f:
-        pkl.dump([X_train, X_test, y_train, y_test], f)
+                parts = file_name.split('_')
+                noise = float(parts[1]) # Assumes file name format: {uncertainty}_{noise}_{epsilon}_metrics.pkl
+                eps = float(parts[2])
 
-def load_data(filename, path):
-    with open(path+filename+".pkl",'rb') as f:
-        X_train, X_test, y_train, y_test = pkl.load(f)
-    return X_train, X_test, y_train, y_test
+                if eps != epsilon:
+                    continue
+                
+                with open(path, 'rb') as file:
+                    # The noise level and uncertainty type are inferred from the file name
+                    
+                    metrics = pkl.load(file)
 
-def generate_filename(dataset, n_samples):
-    return f"{dataset}_n_samples_{n_samples}"
+                for m in metrics.data[loss_function].keys():
+                    
+                    if m == metric:
+                        for i, value in enumerate(metrics.data[loss_function][metric]):
+                            if ("disagreement" in metric) or ("regret" in metric):
+                                rows.append({
+                                    'Metric': m,
+                                    'Noise Level (%)': round(noise * 100),  # Assume noise is a fraction
+                                    'Rate (%)': value,
+                                    'Loss Function': loss_function,
+                                    'Index': i,
+                                    "Class": label_vec[i],
+                                    f"{group}": group_vec[i]})
+                
+                            else:
+                                rows.append({
+                                    'Metric': m,
+                                    'Noise Level (%)': round(noise * 100),  # Assume noise is a fraction
+                                    'Rate (%)': value,
+                                    'Loss Function': loss_function,
+                                    'Index': i })
+                
+
+    # Scan through all files in the directory for the model_type
+    
+                    
+    return pd.DataFrame(rows)
+
 
 def load_dataset(dataset, include_groups = False):
     
@@ -88,15 +142,27 @@ def load_dataset(dataset, include_groups = False):
     elif dataset == "saps":
         # Labels
         labels = df['DeadAtDischarge'].values
+
+        # Encode 'sex' using LabelEncoder
+        label_encoder = LabelEncoder()
+        
+
+        df['age'] = label_encoder.fit_transform(df['Age'])
+        df['hiv'] = label_encoder.fit_transform(df['HIVWithComplications'])
         
         # Groups
         groups = {
+            'age': df["age"].values,
+            'hiv': df["hiv"].values
             
         }
-        #No groups
 
+        if include_groups:
             # Features including all except label
-        features = pd.get_dummies(df.drop('DeadAtDischarge', axis=1)).values
+            features = pd.get_dummies(df.drop('DeadAtDischarge', axis=1)).values.astype(int)
+        else:
+            # Features including all except group and label
+            features = pd.get_dummies(df.drop(['DeadAtDischarge', 'age', 'hiv'], axis=1)).values.astype(int)
         
     elif dataset == "lungcancer":
         # Labels
@@ -130,7 +196,7 @@ def load_dataset(dataset, include_groups = False):
     return features, labels, groups
 
 
-def balance_data(features, labels):
+def balance_data(features, labels, saps, groups = None):
         # Suppose this function loads your dataset
     #features, labels, groups = load_dataset("cshock_eicu", include_groups=True)
     np.random.seed(2024)
@@ -146,10 +212,16 @@ def balance_data(features, labels):
     labels_minority = labels[labels == minority_class]
     labels_majority = labels[labels == majority_class]
 
+
+    groups_minority = groups[labels == minority_class]
+    groups_majority = groups[labels == majority_class]
+
+
     # Upsample the minority class
-    features_minority_upsampled, labels_minority_upsampled = resample(
+    features_minority_upsampled, labels_minority_upsampled, groups_minority_upsampled = resample(
         features_minority,
         labels_minority,
+        groups_minority,
         replace=True,  # Sample with replacement
         n_samples=len(features_majority),  # Match number in majority class
         random_state=2024)  # Reproducible results
@@ -157,14 +229,11 @@ def balance_data(features, labels):
     # Combine the majority class with the upsampled minority class
     features_balanced = np.vstack((features_majority, features_minority_upsampled))
     labels_balanced = np.hstack((labels_majority, labels_minority_upsampled))
-
-    # Shuffle the dataset to mix up minority and majority samples
-    indices = np.arange(len(labels_balanced))
-    np.random.shuffle(indices)
-    features_balanced = features_balanced[indices]
-    labels_balanced = labels_balanced[indices]
     
-    return features_balanced, labels_balanced
+    groups_balanced = np.hstack((groups_majority, groups_minority_upsampled))
+    features_balanced, labels_balanced, groups_balanced = shuffle(features_balanced, labels_balanced, groups_balanced, random_state=2024)
+    return features_balanced, labels_balanced, groups_balanced
+   
 
 
 def load_MNIST(n_samples, random_state = 42):
@@ -191,25 +260,51 @@ def load_MNIST(n_samples, random_state = 42):
 
     return X_scaled, Y
 
+def load_dataset_splits(dataset, group=""):
+
+    parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))  
+
+
+    filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_processed.pkl")
+    with open(filepath, 'rb') as file:
+        # Use pickle to write the dictionary to the file
+        [X_train, X_test, y_train, y_test, group_train, group_test] = pkl.load(file)
+
+
+    return X_train, X_test, y_train, y_test, group_train, group_test
+
+
 if __name__ == "__main__":
 
-    samples = [1000]
-    datasets = ["MNIST"]
+    datasets = ["cshock_eicu", "cshock_mimic", "lungcancer", "saps", "support"]
 
-    random_state = 42
+    random_state = 2024
 
-    for n_samples in samples:
-        for dataset in datasets:
+    parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
+
+    for dataset in datasets:
+
+        print("Loaded Data!")
+
+        X, y, groups_dict = load_dataset(dataset, include_groups = True)
+
+        
+        for group in groups_dict.keys():
+            features, labels, groups = balance_data(X, y, saps = False, groups = groups_dict[group])
+
+            X_train, X_test, y_train, y_test, group_train, group_test = train_test_split(features, 
+                                                                labels, 
+                                                                groups,
+                                                                test_size=0.2, 
+                                                                random_state=2024)
+            X_train = X_train
+            y_train = y_train.astype(int)
+            y_test = y_test.astype(int)
             
-            if dataset == "MNIST":
-                X_scaled, Y = load_MNIST(dataset, n_samples)
-                X_train, X_test, y_train, y_test = train_test_split(X_scaled, Y, test_size=0.2, random_state=random_state)
+            filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_processed.pkl")
 
-            print("Loaded Data!")
+            with open(filepath, 'wb') as file:
+                # Use pickle to write the dictionary to the file
+                pkl.dump([X_train, X_test, y_train, y_test, group_train, group_test] , file)
 
-            filename = generate_filename(dataset, n_samples)
-            path = "/h/snagaraj/noise_multiplicity/data/processed/"
-
-            save_data(X_train, X_test, y_train, y_test, filename, path)
-            
             print("Saved Data!")

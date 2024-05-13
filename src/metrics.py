@@ -65,3 +65,97 @@ def calculate_error_rate(predictions, labels):
 
 
     return error_rate_per_example * 100
+
+
+
+def iou(array1, array2):
+    """
+    Compute the Intersection over Union (IoU) based on common indices in two arrays.
+    
+    Parameters:
+    - array1 (np.ndarray): First array of indices.
+    - array2 (np.ndarray): Second array of indices.
+    
+    Returns:
+    - float: The IoU of the two arrays.
+    """
+    # Convert arrays to sets
+    set1 = set(array1)
+    set2 = set(array2)
+
+    # Calculate intersection and union
+    intersection = set1.intersection(set2)
+    union = set1.union(set2)
+
+    # Compute the IoU
+    if len(union) == 0:
+        return 0  # To handle the case where there is no union
+    else:
+        iou = len(intersection) / len(union)
+        return iou
+
+def dice(array1, array2):
+    """
+    Compute the Dice Coefficient of two lists.
+    
+    Parameters:
+    - list1 (list): First list of items.
+    - list2 (list): Second list of items.
+    
+    Returns:
+    - float: The Dice Coefficient of the two lists.
+    """
+    set1 = set(array1)
+    set2 = set(array2)
+    
+    intersection = len(set1.intersection(set2))
+    dice = (2 * intersection) / (len(set1) + len(set2))
+    return dice
+
+
+def indices_above_threshold(data, threshold):
+    """
+    Return the indices of elements in a list or numpy array that are above a given threshold.
+    
+    Parameters:
+    - data (list or np.ndarray): The list or numpy array to search.
+    - threshold (float or int): The threshold above which indices should be returned.
+    
+    Returns:
+    - np.ndarray: An array of indices where the corresponding elements are above the threshold.
+    """
+    # Convert data to a numpy array if it's not already one
+    data_array = np.array(data)
+    # Find indices where the condition is true
+    indices = np.where(data_array >= threshold)[0]
+
+    return indices
+
+def compute_overlap(array1, array2, threshold, overlap_metric="dice"):
+    """
+    Compute the overlap metric (IoU or Dice) between two arrays after filtering based on a threshold.
+    
+    Parameters:
+    - array1 (list or np.ndarray): First input array.
+    - array2 (list or np.ndarray): Second input array.
+    - threshold (float): Threshold to filter elements by.
+    - metric (str): Metric to compute ('iou' or 'dice').
+    
+    Returns:
+    - float: Computed metric (IoU or Dice) based on the sets of indices above the threshold.
+    """
+    # Get indices above threshold for both arrays
+
+    indices1 = set(indices_above_threshold(array1, threshold))
+    indices2 = set(indices_above_threshold(array2, threshold))
+    
+    # Calculate the metric based on the selected type
+    if overlap_metric.lower() == 'iou':
+        return iou(indices1, indices2)
+    elif overlap_metric.lower() == 'dice':
+        return dice(indices1, indices2)
+    else:
+        raise ValueError("Unsupported metric specified. Use 'iou' or 'dice'.")
+
+
+

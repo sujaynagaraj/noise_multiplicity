@@ -6,6 +6,8 @@ src/data/*
 
 #Log Files
 *.out
+*.csv
+*.pdf
 
 
 # Byte-compiled / optimized / DLL files

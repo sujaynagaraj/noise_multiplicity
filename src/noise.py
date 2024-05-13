@@ -1,7 +1,6 @@
 import numpy as np
 from scipy.stats import bernoulli
 
-
 def generate_class_independent_noise(y, flip_p):
     noise_transition_matrix = np.array([[1-flip_p, flip_p], [flip_p, 1-flip_p]])
 
@@ -14,31 +13,35 @@ def generate_class_conditional_noise(y, flip_p, fixed_class, fixed_noise):
         noise_transition_matrix = np.array([[1-flip_p, flip_p], [fixed_noise, 1-fixed_noise]])
     return add_label_noise(y, noise_transition_matrix=noise_transition_matrix), noise_transition_matrix
 
+def generate_group_noise(y, groups, noise_transition_dict):
+
+    return add_label_noise(y, groups, noise_type = "group", noise_transition_dict=noise_transition_dict), noise_transition_dict
+
 def generate_instance_dependent_noise(y, X, flip_p, feature_weights):
     noise_transition_dict = {}
     for instance in np.unique(X, axis=0):
         flip_instance = instance_noise_level(instance, flip_p, feature_weights)
         noise_transition_dict[tuple(instance)] = np.array([[1-flip_instance, flip_instance],
                                                            [flip_instance, 1-flip_instance]])
-    return add_label_noise(y, instance_dependent=True, X=X, noise_transition_dict=noise_transition_dict), noise_transition_dict
+    return add_label_noise(y, noise_type="feature", X=X, noise_transition_dict=noise_transition_dict), noise_transition_dict
 
-
-def add_label_noise(labels, noise_transition_matrix=None, instance_dependent=False, X= None, noise_transition_dict=None):
+def add_label_noise(labels, groups = None, noise_transition_matrix=None, noise_type = "class_independent", X= None, noise_transition_dict=None):
     noisy_labels = np.copy(labels)
     
-    if instance_dependent:
-        for i, label in enumerate(labels):
-            x0 =  X[i][0]
-            x1 =  X[i][1]
-            
-            noise_transition_matrix_instance = noise_transition_dict[(x0,x1)]
-            noisy_labels[i] = np.random.choice([0, 1], p=noise_transition_matrix_instance[label])
-    else:
-    
+    np.random.seed(2024)
+
+    if noise_type == "class_independent":
         for i, label in enumerate(labels):
             noisy_labels[i] = np.random.choice([0, 1], p=noise_transition_matrix[label])
-    return noisy_labels
+    elif noise_type == "class_conditional":
+        for i, label in enumerate(labels):
+            noisy_labels[i] = np.random.choice([0, 1], p=noise_transition_matrix[label])
+    elif noise_type == "group":
+        for i, group in enumerate(groups):
+            noise_transition_matrix_group = noise_transition_dict[group]
+            noisy_labels[i] = np.random.choice([0, 1], p=noise_transition_matrix_group[labels[i]])
 
+    return noisy_labels
 
 def instance_noise_level(instance_features, base_noise_level, feature_weights):
     """
@@ -54,76 +57,52 @@ def instance_noise_level(instance_features, base_noise_level, feature_weights):
     noise_level = min(max(noise_level, 0), 0.49)
     return noise_level
 
-#u | y
-# def get_u(y, T, seed):
-#     np.random.seed(seed)
 
-#     if y == 0:
-#         noise_rate = T[0,1]
-#     else:
-#         noise_rate = T[1,0]
-    
-#     sampled_u = bernoulli.rvs(p=noise_rate, size=1)
-    
-#     return sampled_u[0]
-
-
-def get_u(y, T, seed=None):
+def get_u(y,  T, seed, group = None, noise_type = "class_independent"):
     np.random.seed(seed)
-    # Define noise rates based on the label
-    noise_rates = np.where(y == 0, T[0, 1], T[1, 0])
-    # Sample u for all labels at once
+    
+    if noise_type == "group":
+        # Initialize an array to hold the noise rates
+        noise_rates = np.zeros_like(y, dtype=float)
+        
+        # Iterate over each label and group to set the correct noise rate
+        for i in range(len(y)):
+            # Get the group-specific transition matrix
+            T_i = T[group[i]]
+            # Use the transition matrix based on the label from y
+            if y[i] == 0:
+                noise_rates[i] = T_i[0, 1]
+            else:
+                noise_rates[i] = T_i[1, 0]
+    else:
+        # Define noise rates based on the label
+        noise_rates = np.where(y == 0, T[0, 1], T[1, 0])
+        # Sample u for all labels at once
+    
     sampled_u = bernoulli.rvs(p=noise_rates)
+    
     return sampled_u
 
-#u | yn
-# def infer_u(yn, T, p_y_x, seed):
-#     np.random.seed(seed)
-
-#     posterior = calculate_posterior(yn, T, p_y_x)
-    
-#     sampled_u = bernoulli.rvs(p=posterior, size=1)
-    
-#     return sampled_u[0]
-
-
-def infer_u(yn, T, p_y_x, seed):
+def infer_u(yn, seed, p_y_x_dict, group = None, noise_type = "class_independent", T= None):
     np.random.seed(seed)  # Set seed for reproducibility
-
-    # Calculate posterior probabilities for the whole vector of yn
-    posterior = calculate_posterior(yn, T, p_y_x)
-    
+ 
+    if noise_type == "group":
+        posterior = np.zeros_like(yn, dtype=float)
+        
+        # Iterate over each label and group to set the correct noise rate
+        for i, val in enumerate(yn):
+            T_i = T[group[i]]
+            posterior[i] = calculate_posterior(val, T_i, p_y_x_dict[group[i]])
+        
+    else:
+        posterior = calculate_posterior(yn, T, p_y_x_dict[0])
     # Generate random samples from a Bernoulli distribution for the entire vector
     sampled_u = bernoulli.rvs(p=posterior)
     
     return sampled_u
 
-
-# def calculate_posterior(yn, T, p_y_x):
-    
-#     if yn == 0:
-#         opp_class = 1
-#     else:
-#         opp_class = 0
-    
-    
-#     p_u_opp = T[opp_class, yn]
-    
-#     p_u = T[yn,opp_class]
-
-#     numerator = p_u_opp * p_y_x[opp_class]
-    
-    
-#     # Sum the resulting vector to get P(y_tilde = observed_y_tilde | x = x)
-#     denominator = (1-p_u)*p_y_x[yn] + p_u_opp*p_y_x[opp_class]
-    
-#     # Divide the element-wise product by the sum to get P(u=1 | y_tilde = observed_y_tilde, x = x)
-#     p_u_given_yn_x = numerator / denominator
-    
-#     return p_u_given_yn_x
-
 def calculate_posterior(yn, T, p_y_x):
-    # Create arrays of opposite class indices
+     # Create arrays of opposite class indices
     opp_class = 1 - yn  # Flips 0 to 1 and 1 to 0
 
     # Index T for probabilities of unobserved true class and observed noisy class
@@ -145,6 +124,7 @@ def calculate_posterior(yn, T, p_y_x):
 
     return p_u_given_yn_x
 
+
 def flip_labels(y, u):
     """
     Takes two binary numpy arrays, u and y, and returns a new array noisy_y
@@ -161,10 +141,26 @@ def flip_labels(y, u):
     return noisy_y
 
 
+def calculate_prior(y, group, noise_type = "class_independent"):
+    
+    
+    p_y_x_dict = {}
+    for g in np.unique(group, axis=0):
+        
+        if noise_type == "group":
 
+            indices = [idx for idx, elem in enumerate(group) if np.array_equal(elem, g)]
+            p1 = np.sum(y[indices])/len(indices)
 
+        else:
+            p1 = np.sum(y)/len(y)
 
-def is_typical(u_vec, T, y_vec = None, p_y_x = None, epsilon=0.25, noise_type = "class_independent", uncertainty_type = "backward"):
+        p_y_x = np.array([1-p1,p1])
+        p_y_x_dict[g] = p_y_x
+    
+    return p_y_x_dict
+        
+def is_typical(u_vec, p_y_x_dict, group = None,  T = None, y_vec = None, epsilon=0.25, noise_type = "class_independent", uncertainty_type = "backward"):
     """
     Checks if the observed flips (u_vec) are typical given the noise model (T) and, optionally,
     the class distributions p_y_x.
@@ -180,37 +176,73 @@ def is_typical(u_vec, T, y_vec = None, p_y_x = None, epsilon=0.25, noise_type = 
     Returns:
     - bool: True if the flips are typical, False otherwise.
     """
-
     
     if uncertainty_type == "forward" and noise_type=="class_independent":
-
 
         noise_rate = T[0,1]
         
         #print(sum(u_vec)/len(u_vec), noise_rate)
     
         if abs(sum(u_vec)/len(u_vec) - noise_rate) <= epsilon*noise_rate:
-            return True
+            return True, abs(sum(u_vec)/len(u_vec) - noise_rate)
         else:
-            return False
+            return False, abs(sum(u_vec)/len(u_vec) - noise_rate)
+
+    elif noise_type == "group":
+        bool_flag = True
+        for g in np.unique(group):
+            p_g = np.sum((group == g))/len(group)
+            
+            for y in [0,1]:
+                
+                p_y_x = p_y_x_dict[g]
+                
+                
+                
+                # Create a boolean mask where all conditions are true
+                mask = (u_vec == 1) & (y_vec == y) & (group == g)#(U=u,Y=y)
+
+                # Count the number of True values in the mask
+                count = np.sum(mask)
+
+                freq = count/len(u_vec)
+
+                opp_class = 1-y
+
+                p_u_opp = T[g][opp_class, y]
+
+                p_u = T[g][y,opp_class]
+
+                # Sum the resulting vector to get P(y_tilde = observed_y_tilde | x = x)
+                
+                if uncertainty_type == "forward":
+                    true_freq = p_u*p_y_x[y]*p_g
+                else:
+                    p_yn = (1-p_u)*p_y_x[y] + p_u_opp*p_y_x[opp_class]
+                    true_freq = calculate_posterior(y, T[g], p_y_x)*p_yn*p_g
+                    
+                if (abs(freq - true_freq) > epsilon*true_freq): #atypical
+                    bool_flag = False
+                    break
+                    
+            return bool_flag, abs(freq - true_freq)
+        
     else:
         bool_flag = True
 
         for y in [0,1]:
+            
+            p_y_x = p_y_x_dict[0]
+            
 
             # Create a boolean mask where both conditions are true
             mask = (u_vec == 1) & (y_vec == y) #(U=u,Y=y)
             
-            #print(yn, u_vec, y_vec, mask)
             # Count the number of True values in the mask
             count = np.sum(mask)
 
             freq = count/len(u_vec)
 
-            #freq = count/np.sum(y_vec == y)
-            
-            #true_freq = #p(u,yn) = p(u = 1 | Yn = yn) p(Yn = yn)
-            
             opp_class = 1-y
 
             p_u_opp = T[opp_class, y]
@@ -225,9 +257,10 @@ def is_typical(u_vec, T, y_vec = None, p_y_x = None, epsilon=0.25, noise_type = 
             else:
                 true_freq = calculate_posterior(y, T, p_y_x)*p_yn
 
-            #print(y, p_u, p_y_x[y], freq, true_freq)
             if (abs(freq - true_freq) > epsilon*true_freq): #atypical
-                bool_flag = False
+                bool_flag = False, abs(freq - true_freq)
                 break
-        return bool_flag
                 
+
+        return bool_flag, abs(freq - true_freq)
+    
