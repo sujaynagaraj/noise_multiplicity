@@ -196,7 +196,7 @@ def load_dataset(dataset, include_groups = False):
     return features, labels, groups
 
 
-def balance_data(features, labels, saps, groups = None):
+def balance_data(features, labels, groups = None):
         # Suppose this function loads your dataset
     #features, labels, groups = load_dataset("cshock_eicu", include_groups=True)
     np.random.seed(2024)
@@ -308,3 +308,21 @@ if __name__ == "__main__":
                 pkl.dump([X_train, X_test, y_train, y_test, group_train, group_test] , file)
 
             print("Saved Data!")
+
+def metrics_to_df(metrics_dict, noise_level, seed):
+    # Initialize an empty list to hold all the data rows
+    data = []
+    
+    # Loop through each loss function in the dictionary
+    for loss_func, metrics in metrics_dict.items():
+        # Loop through each metric and its list of values
+        for metric, values in metrics.items():
+            # Loop through each value in the list
+            for idx, value in enumerate(values):
+                # Append a new row with the loss function, metric, index, and the value
+                data.append({'Loss Function': loss_func, 'Noise Level (%)': int(noise_level*100), 'Metric': metric, 'Index': idx, 'Rate (%)': value, 'Seed': seed})
+    
+    # Convert the list of dictionaries to a DataFrame
+    df = pd.DataFrame(data)
+    
+    return df

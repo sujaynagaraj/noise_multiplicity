@@ -25,6 +25,22 @@ def generate_instance_dependent_noise(y, X, flip_p, feature_weights):
                                                            [flip_instance, 1-flip_instance]])
     return add_label_noise(y, noise_type="feature", X=X, noise_transition_dict=noise_transition_dict), noise_transition_dict
 
+
+def adjust_transition_matrix(T, adjustment_factor):
+    """
+    Adjust the transition matrix by a given factor on off-diagonal elements.
+    - Positive factor for overestimation (increase noise)
+    - Negative factor for underestimation (decrease noise)
+    """
+    T_adj = T.copy()
+    n = T.shape[0]
+    for i in range(n):
+        for j in range(n):
+            if i != j:
+                T_adj[i, j] = T[i, j] * (1 + adjustment_factor)
+                T_adj[i, i] = 1 - T_adj[i, j]
+    return T_adj
+
 def add_label_noise(labels, groups = None, noise_transition_matrix=None, noise_type = "class_independent", X= None, noise_transition_dict=None):
     noisy_labels = np.copy(labels)
     

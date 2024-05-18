@@ -375,3 +375,140 @@ def train_LR_noise_variance(X_train, y_train, X_test, y_test, num_models=1000, n
         accuracies.append(accuracy)
         predicted_probabilities.append(probabilities)
     return np.array(predicted_probabilities), np.array(accuracies)
+
+
+def train_model_ours_regret(X_train, y_train, seed, model_type="LR"):
+    # Set random seed for reproducibility
+
+    np.random.seed(seed)
+    
+    # Choose the model based on the input
+    if model_type == "LR":
+        model = LR(**DEFAULT_LR_PARAMS, random_state = seed)
+    elif model_type == "SVM":
+        model = LinearSVC(**DEFAULT_SVM_PARAMS, random_state = seed)
+    elif model_type == "NN":
+        model = MLPClassifier(**DEFAULT_NN_PARAMS, random_state = seed)
+    else:
+        raise ValueError("Unsupported model type. Choose 'LR' or 'SVM'.")
+
+    # Train the model using noisy labels (simulating the impact of label noise)
+    model.fit(X_train, y_train)
+
+    # Predictions for training and test sets
+    train_preds = model.predict(X_train)
+
+
+    # Calculate accuracies
+    train_acc = accuracy_score(y_train, train_preds)
+
+    if model_type == "SVM":
+        train_probs = model.decision_function(X_train)
+        
+    else:
+        train_probs = model.predict_proba(X_train)
+        
+    # Calculate log losses
+    train_loss = log_loss(y_train, train_probs)
+        
+
+    results = (train_acc,
+                train_probs,
+                train_loss,
+                train_preds)
+        
+
+    return model, results
+
+
+def train_model_regret_torch(X_train, yn_train, y_train, X_test, y_test, T,  seed, num_epochs=100, batch_size = 256, correction_type="forward", model_type = "LR"):
+    # Check if GPU is available and set the default device accordingly
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    
+    # Convert to PyTorch tensors and move them to the device
+    X_train = torch.tensor(X_train, dtype=torch.float32).to(device)
+    y_train = torch.tensor(y_train, dtype=torch.long).to(device)
+    yn_train = torch.tensor(yn_train, dtype=torch.long).to(device)
+
+    X_test = torch.tensor(X_test, dtype=torch.float32).to(device)
+    y_test = torch.tensor(y_test, dtype=torch.long).to(device)
+
+    # Create DataLoader for mini-batch SGD
+    train_data = TensorDataset(X_train, yn_train)
+    train_loader = DataLoader(dataset=train_data, batch_size=batch_size, shuffle=True)
+
+    if model_type == "LR":
+        # Initialize the model and move it to the device
+        model = LogisticRegression(X_train.shape[1]).to(device)
+    else:
+        # Initialize the model and move it to the device
+        model = NeuralNet(X_train.shape[1]).to(device)
+
+    criterion = nn.CrossEntropyLoss()
+    #optimizer = optim.SGD(model.parameters(), lr=0.01)
+    optimizer = optim.Adam(model.parameters(), lr=0.01)
+
+    if correction_type in ['backward', 'forward']:
+
+        T = torch.tensor(T).to(device)
+
+    # Train the model
+    for epoch in (range(num_epochs)):
+        for features, noisy_labels in train_loader:
+
+
+            # Move features and labels to the device
+            features, noisy_labels = features.to(device), noisy_labels.to(device)
+            
+            # Forward pass
+            outputs = model(features)
+
+            if correction_type == 'forward':
+                noisy_loss = forward_loss(outputs, noisy_labels, T, device)
+
+                #elapsed = timeit.default_timer() - start_time
+                #print("Forward ", elapsed)
+
+            elif correction_type == 'backward':
+                noisy_loss = backward_loss(outputs, noisy_labels, T, device)
+
+                #elapsed = timeit.default_timer() - start_time
+                #print("Backward ", elapsed)
+
+            else:
+                noisy_loss = criterion(outputs, noisy_labels)
+                
+                #elapsed = timeit.default_timer() - start_time
+                #print("BCE ", elapsed)
+            
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            noisy_loss.backward()
+            optimizer.step()
+    
+    train_outputs = model(X_train)
+    test_outputs = model(X_test)
+
+    # Evaluate the model
+    with torch.no_grad():
+        
+        _, train_preds = torch.max(train_outputs.data, 1)
+        train_preds = train_preds.cpu().numpy()
+        # Move the predictions back to the CPU for sklearn accuracy calculation
+        train_probs = torch.softmax(train_outputs, dim=1).cpu().numpy()
+
+        _, test_preds = torch.max(test_outputs.data, 1)
+        test_preds = test_preds.cpu().numpy()
+        # Move the predictions back to the CPU for sklearn accuracy calculation
+        test_probs = torch.softmax(test_outputs, dim=1).cpu().numpy()
+
+
+    results = (train_preds,
+                test_preds,
+                train_probs,
+                test_probs
+                )
+    return model, results

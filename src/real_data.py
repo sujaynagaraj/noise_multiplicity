@@ -25,7 +25,7 @@ class MetricsStorage:
                 'noisy_train_loss', 'clean_train_loss', 'clean_test_loss',
                 'noisy_train_acc', 'clean_train_acc', 'clean_test_acc' , 
                 'train_loss', 'test_loss', 'train_acc', 'test_acc', 'flip_frequency', 'typical_rate', 'typical_difference',
-                "preds_train", "preds_test"]
+                "preds_train", "preds_test", "train_probs", "test_probs"]
 
     def add_metric(self, loss, metric, value):
         self.data[loss][metric].append(value)
@@ -43,10 +43,10 @@ def dummy_T_dict(group_train, T):
 def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test, p_y_x_dict, noise_type = "class_independent", uncertainty_type="backward",  model_type = "LR" , fixed_class=0, fixed_noise=0.2, T_true = None, T_est = None, batch_size = 512, base_seed = 2024, epsilon = 0.25):
     
     if uncertainty_type == "forward":
-        loss_types = ["BCE", "backward", "forward"]
+        loss_types = ["Ours", "BCE", "backward", "forward"]
         y_vec = y_train
     else: # backward
-        loss_types = ["BCE"]
+        loss_types = ["Ours"]
 
         #Initial Noise Draw
         u_vec = get_u(y_train, T = T_true, seed= base_seed, noise_type = noise_type)
@@ -76,34 +76,62 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
 
         if uncertainty_type == "forward":
             for loss in loss_types:
-                model,  (noisy_train_loss,
-                        clean_train_loss, 
-                        noisy_train_acc,
-                        clean_train_acc,
+                if loss == "Ours":
+                    model,  (train_acc,
+                        test_acc,
                         train_probs,
-                        clean_test_loss, 
-                        clean_test_acc,
-                        test_probs
-                        ) = train_model(X_train, y_train, flipped_labels,  X_test, y_test,  T = T_est, seed=2024, num_epochs=25, batch_size=batch_size, model_type = model_type, correction_type=loss)
+                        test_probs,
+                        train_loss,
+                        test_loss,
+                        train_preds,
+                        test_preds
+                        ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
 
-                preds_train = (train_probs > 0.5).astype(int)
-                preds_test = (test_probs > 0.5).astype(int)
+                    preds_train_dict[loss].append(train_preds)
+                    preds_test_dict[loss].append(test_preds)
 
-                preds_train_dict[loss].append(preds_train)
-                preds_test_dict[loss].append(preds_test)
+                    metrics.add_metric(loss, "noisy_train_loss", train_loss)
+                    metrics.add_metric(loss, "noisy_train_acc", train_acc*100)
+                    metrics.add_metric(loss, "clean_test_loss", test_loss)
+                    metrics.add_metric(loss, "clean_test_acc", test_acc*100)
+                    metrics.add_metric(loss, "typical_difference", difference)
+                    metrics.add_metric(loss, "preds_train", train_preds)
+                    metrics.add_metric(loss, "preds_test", test_preds)
+                    metrics.add_metric(loss, "train_probs", train_probs)
+                    metrics.add_metric(loss, "test_probs", test_probs)
 
-                metrics.add_metric(loss, "noisy_train_loss", noisy_train_loss)
-                metrics.add_metric(loss, "clean_train_loss", clean_train_loss)
-                metrics.add_metric(loss, "noisy_train_acc", noisy_train_acc*100)
-                metrics.add_metric(loss, "clean_train_acc", clean_train_acc*100)
-                metrics.add_metric(loss, "clean_test_loss", clean_test_loss)
-                metrics.add_metric(loss, "clean_test_acc", clean_test_acc*100)
-                metrics.add_metric(loss, "flip_frequency", sum(u_vec)/len(u_vec))
-                metrics.add_metric(loss, "typical_difference", difference)
-                metrics.add_metric(loss, "preds_train", preds_train)
-                metrics.add_metric(loss, "preds_test", preds_test)
+                else:
+                    model,  (noisy_train_loss,
+                            clean_train_loss, 
+                            noisy_train_acc,
+                            clean_train_acc,
+                            train_probs,
+                            clean_test_loss, 
+                            clean_test_acc,
+                            test_probs
+                            ) = train_model(X_train, y_train, flipped_labels,  X_test, y_test,  T = T_est, seed=2024, num_epochs=25, batch_size=batch_size, model_type = model_type, correction_type=loss)
+
+                    preds_train = (train_probs > 0.5).astype(int)
+                    preds_test = (test_probs > 0.5).astype(int)
+
+                    preds_train_dict[loss].append(preds_train)
+                    preds_test_dict[loss].append(preds_test)
+
+                    metrics.add_metric(loss, "noisy_train_loss", noisy_train_loss)
+                    metrics.add_metric(loss, "clean_train_loss", clean_train_loss)
+                    metrics.add_metric(loss, "noisy_train_acc", noisy_train_acc*100)
+                    metrics.add_metric(loss, "clean_train_acc", clean_train_acc*100)
+                    metrics.add_metric(loss, "clean_test_loss", clean_test_loss)
+                    metrics.add_metric(loss, "clean_test_acc", clean_test_acc*100)
+                    metrics.add_metric(loss, "flip_frequency", sum(u_vec)/len(u_vec))
+                    metrics.add_metric(loss, "typical_difference", difference)
+                    metrics.add_metric(loss, "preds_train", preds_train)
+                    metrics.add_metric(loss, "preds_test", preds_test)
+                    metrics.add_metric(loss, "train_probs", train_probs)
+                    metrics.add_metric(loss, "test_probs", test_probs)
 
         else: #backward_sk
+            
             for loss in loss_types:
                 model,  (train_acc,
                         test_acc,
@@ -113,7 +141,7 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
                         test_loss,
                         train_preds,
                         test_preds
-                        ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
+                        ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
 
                 preds_train_dict[loss].append(train_preds)
                 preds_test_dict[loss].append(test_preds)
@@ -125,6 +153,8 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
                 metrics.add_metric(loss, "typical_difference", difference)
                 metrics.add_metric(loss, "preds_train", train_preds)
                 metrics.add_metric(loss, "preds_test", test_preds)
+                metrics.add_metric(loss, "train_probs", train_probs)
+                metrics.add_metric(loss, "test_probs", test_probs)
 
         typical_count += 1
 
@@ -164,9 +194,8 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
     return metrics
 
 def abstain(rates, threshold):
-    rates = np.where(rates > 100, 100, rates)
-    rates = np.where(rates < 0, 0, rates)
-    return ((rates >= threshold)).astype(int)
+    rates = np.clip(rates, 0, 100)
+    return ((rates > threshold)).astype(int)
 
 def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25):
     
@@ -203,7 +232,6 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
         if typical_count == m:
             break
             
-
     predictions_test = np.array(preds_test)
     disagreement_test = estimate_disagreement(predictions_test)
 
@@ -236,3 +264,176 @@ def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
  
     return model, test_preds
 
+
+
+
+
+def run_procedure_regret(m, max_iter, X_train, yn_train,  p_y_x_dict,  noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.1):
+    
+    typical_count = 0
+    preds_train = []
+    preds_val = []
+    
+    y_vec = yn_train
+    
+    for seed in tqdm(range(1, max_iter+1)):
+        
+        u_vec = infer_u(y_vec,  noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
+        
+        typical_flag, _ = is_typical(u_vec, p_y_x_dict,   T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
+
+        if not typical_flag:
+            continue
+            
+        flipped_labels = flip_labels(y_vec, u_vec)
+        
+        model,  (train_acc,
+                train_probs,
+                train_loss,
+                train_preds
+                    )= train_model_ours_regret(X_train, flipped_labels, seed = 2024, model_type="LR")
+        
+        preds_train.append(train_preds)
+
+        typical_count += 1
+
+        if typical_count == m:
+            break
+            
+    predictions_train = np.array(preds_train)
+    disagreement_train = estimate_disagreement(predictions_train)
+    
+
+
+    return predictions_train, disagreement_train
+
+
+class Metrics:
+    def __init__(self):
+        self.metrics = {}
+
+    def add_metric(self, method, draw_id, metric_name, value):
+        if method not in self.metrics:
+            self.metrics[method] = {}
+        if draw_id not in self.metrics[method]:
+            self.metrics[method][draw_id] = {}
+        self.metrics[method][draw_id][metric_name] = value
+
+    def get_metric(self, method, draw_id, metric_name):
+        return self.metrics.get(method, {}).get(draw_id, {}).get(metric_name, None)
+
+    def get_all_metrics(self, method, draw_id):
+        return self.metrics.get(method, {}).get(draw_id, {})
+
+class Vectors:
+    def __init__(self):
+        self.vectors = {}
+
+    def add_vector(self, method, draw_id, vector_name, value):
+        if method not in self.vectors:
+            self.vectors[method] = {}
+        if draw_id not in self.vectors[method]:
+            self.vectors[method][draw_id] = {}
+        self.vectors[method][draw_id][vector_name] = value
+
+    def get_vector(self, method, draw_id, vector_name):
+        return self.vectors.get(method, {}).get(draw_id, {}).get(vector_name, None)
+
+    def get_all_vectors(self, method, draw_id):
+        return self.vectors.get(method, {}).get(draw_id, {})
+
+
+class MetricsCalculator:
+    def __init__(self, vectors):
+        self.vectors = vectors
+        self.metrics = Metrics()
+
+    def calculate_metrics(self, draw_id):
+        instance_err_true_train = self.vectors.get_vector("metadata", draw_id, "instance_err_true_train")
+        instance_err_true_test = self.vectors.get_vector("metadata", draw_id, "instance_err_true_test")
+        for err_method in self.vectors.vectors.keys():
+            if err_method!= "metadata":
+                yn_train = self.vectors.get_vector(err_method, draw_id, "yn_train")
+                train_preds = self.vectors.get_vector(err_method, draw_id, "train_preds")
+                y_train = self.vectors.get_vector(err_method, draw_id, "y_train")
+
+
+                instance_err_anticipated_train = self.vectors.get_vector(err_method, draw_id, "instance_err_anticipated_train")
+                empirical_regret_train, regret_instances_train = instance_01loss(instance_err_true_train, instance_err_anticipated_train)
+                fpr_train, fp_train, fnr_train, fn_train = regret_FPR_FNR(instance_err_true_train, instance_err_anticipated_train)
+
+                self.metrics.add_metric(err_method, draw_id, "pop_err_anticipated_train", np.mean(instance_err_anticipated_train))
+                self.metrics.add_metric(err_method, draw_id, "pop_err_true_train", np.mean(instance_err_true_train))
+                self.metrics.add_metric(err_method, draw_id, "empirical_regret_train", empirical_regret_train)
+                self.metrics.add_metric(err_method, draw_id, "regret_indices_train", np.where(regret_instances_train == 1)[0])
+                self.metrics.add_metric(err_method, draw_id, "fpr_train", fpr_train)
+                self.metrics.add_metric(err_method, draw_id, "fnr_train", fnr_train)
+                self.metrics.add_metric(err_method, draw_id, "fps_train", np.where(fp_train == 1)[0])
+                self.metrics.add_metric(err_method, draw_id, "fns_train", np.where(fn_train == 1)[0])
+
+    def get_metrics(self):
+        return self.metrics
+
+
+def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, training_loss="None", n_draws=5):
+    X_train, X_test, y_train, y_test, group_train, group_test = load_dataset_splits(dataset, group="age")
+
+    y_train = y_train.astype(int)
+    y_test = y_test.astype(int)
+
+    p_y_x_dict = calculate_prior(y_train, noise_type=noise_type, group = group_train)  # Clean prior
+
+    vectors = Vectors()
+
+    for draw_id in range(n_draws):
+        u_vec = get_u(y_train, T=T, seed=draw_id, noise_type=noise_type)
+        yn_train = flip_labels(y_train, u_vec)
+
+        model, (train_preds, test_preds,
+                train_probs, test_probs) = train_model_regret_torch(
+            X_train, yn_train, y_train, X_test, y_test, T,
+            seed=2024, num_epochs=100, batch_size=256, correction_type=training_loss, model_type=model_type)
+
+        # True Population Error
+        pop_err_true_train, instance_err_true_train = instance_01loss(y_train, train_preds)
+        pop_err_true_test, instance_err_true_test = instance_01loss(y_test, test_preds)
+        
+        vectors.add_vector("metadata", draw_id, "dataset", dataset)
+        vectors.add_vector("metadata", draw_id, "noise_type", noise_type)
+        vectors.add_vector("metadata", draw_id, "model_type", model_type)
+        vectors.add_vector("metadata", draw_id, "n_models", n_models)
+        vectors.add_vector("metadata", draw_id, "max_iter", max_iter)
+        vectors.add_vector("metadata", draw_id, "training_loss", training_loss)
+        vectors.add_vector("metadata", draw_id, "n_draws", n_draws)
+        vectors.add_vector("metadata", draw_id, "T", T)
+        vectors.add_vector("metadata", draw_id, "y_train", y_train)
+        vectors.add_vector("metadata", draw_id, "train_preds", train_preds)
+        vectors.add_vector("metadata", draw_id, "train_probs", train_probs)
+        vectors.add_vector("metadata", draw_id, "test_preds", test_preds)
+        vectors.add_vector("metadata", draw_id, "test_probs", test_probs)
+        vectors.add_vector("metadata", draw_id, "yn_train", yn_train)
+        vectors.add_vector("metadata", draw_id, "instance_err_true_train", instance_err_true_train)
+        vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
+
+        for err_method in ["01", "forward", "backward", "ours"]:
+            if err_method == "01":
+                pop_err_anticipated_train, instance_err_anticipated_train = instance_01loss(yn_train, train_preds)
+                
+            elif err_method == "forward":
+                pop_err_anticipated_train, instance_err_anticipated_train = instance_forward_01loss(yn_train, train_probs, T)
+
+            elif err_method == "backward":
+                pop_err_anticipated_train_CONT, instance_err_anticipated_train_CONT, pop_err_anticipated_train, instance_err_anticipated_train = natarajan_unbiased_01_loss(yn_train, train_preds, T)
+                
+            elif err_method == "ours":
+                preds_train, disagreement_train = run_procedure_regret(
+                    n_models, max_iter, X_train, yn_train, p_y_x_dict,
+                    noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
+
+                disagreement_train = disagreement_train / 100
+                vectors.add_vector(err_method, draw_id, "disagreement_train", disagreement_train)
+                instance_err_anticipated_train = (disagreement_train>0).astype(int)
+            
+            vectors.add_vector(err_method, draw_id, "instance_err_anticipated_train", instance_err_anticipated_train)
+
+    return vectors

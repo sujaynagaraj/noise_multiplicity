@@ -16,7 +16,7 @@ do
                 model_type=${model_types[$j]}
                 dataset=${datasets[$k]}
                 noise_level=${noise_levels[$h]}
-                file_direction="/scratch/hdd001/home/snagaraj/results/metrics/$dataset/$model_type/$noise_type"
+                file_direction="/scratch/hdd001/home/snagaraj/results/metrics/$dataset/$model_type/$noise_type/correct"
 
                 epsilon=0.1
 
@@ -27,9 +27,10 @@ do
                 # Check if the file exists
                 if [ -f "$file_direction/$file_name" ]; then
                     echo "File found: $file_direction/$file_name"
+                    #sbatch launch_ambiguity_forward.sh $noise_type $model_type $dataset $noise_level
                     
                 else
-                    #echo "File not found: $file_direction/$file_name"
+                    echo "File not found: $file_direction/$file_name"
                     sbatch launch_ambiguity_forward.sh $noise_type $model_type $dataset $noise_level
                 fi
             done

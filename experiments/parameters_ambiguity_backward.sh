@@ -16,10 +16,9 @@ do
                 model_type=${model_types[$j]}
                 dataset=${datasets[$k]}
                 noise_level=${noise_levels[$h]}
-                file_direction="/scratch/hdd001/home/snagaraj/results/metrics/$dataset/$model_type/$noise_type"
+                file_direction="/scratch/hdd001/home/snagaraj/results/metrics/$dataset/$model_type/$noise_type/correct"
 
                 epsilon=0.1
-
                 # Assume file naming as forward/backward_0.0_0.1_metrics.pkl
                 # This assumes both $noise_level and $epsilon are set appropriately elsewhere in your script
                 #file_name=$(printf "%s_%.2g_%.2g_metrics.pkl" "forward" "$noise_level" "$epsilon")
@@ -27,10 +26,10 @@ do
                 # Check if the file exists
                 if [ -f "$file_direction/$file_name" ]; then
                     echo "File found: $file_direction/$file_name"
-                    
+                    sbatch launch_ambiguity_backward.sh $noise_type $model_type $dataset $noise_level 
                 else
                     echo "File not found: $file_direction/$file_name"
-                    sbatch launch_ambiguity_backward.sh $noise_type $model_type $dataset $noise_level
+                    sbatch launch_ambiguity_backward.sh $noise_type $model_type $dataset $noise_level 
                 fi
 
             done

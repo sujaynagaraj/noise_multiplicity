@@ -28,18 +28,20 @@ import pickle as pkl
 
 parser = argparse.ArgumentParser('abstain')
 
-parser.add_argument('--n_models', type =int, default=1000, help="number of models to train")
+parser.add_argument('--n_models', type =int, default=100, help="number of models to train")
 parser.add_argument('--noise_type', type=str, default="class_independent", help="specify type of label noise")
-parser.add_argument('--max_iter', type =int, default=100000, help="max iterations to check for typical vec")
+parser.add_argument('--max_iter', type =int, default=10000, help="max iterations to check for typical vec")
 parser.add_argument('--model_type', type =str, default="LR", help="LR or NN")
 parser.add_argument('--dataset', type =str, default="cshock_mimic", help="dataset choice")
-parser.add_argument('--epsilon', type =float, default=0.10, help="number of models to train")
+parser.add_argument('--epsilon', type =float, default=0.1, help="number of models to train")
 
 args = parser.parse_args()
 
 #####################################################################################################
 
 if __name__ == '__main__':
+    start_time = timeit.default_timer()
+
     print('Starting Abstention')
     print("Noise Type: ", args.noise_type)
     print("Model Type: ", args.model_type)
@@ -67,42 +69,47 @@ if __name__ == '__main__':
 
     p_y_x_dict =  calculate_prior(y_train, noise_type = noise_type, group=group_train) #Clean prior
 
+    batch_size = 512
+
+    if dataset == "lungcancer":
+        n_models = 100
+        batch_size = 2048
+
 
     if noise_type == "class_independent":
-        regrets = []
-        coverages = []
-        thresholds = []
         noise_levels = []
-        disagreement_tests = {}
-        iterations = []
+        losses = []
+        dis = []
+        preds = []
 
-        for noise_level in [0.01, 0.05, 0.1, 0.2, 0.4]:
-            for base_seed in [10000, 20000, 30000, 40000, 50000]:
-                _, T = generate_class_independent_noise(y_train, noise_level)
+        for noise_level in [0.1, 0.2, 0.3, 0.4, 0.45]:
+            
+            _, T = generate_class_independent_noise(y_train, noise_level)
 
-                u_vec = get_u(y_train, T = T, seed= base_seed, noise_type = noise_type)
-                yn_train = flip_labels(y_train, u_vec) #XOR
+            u_vec = get_u(y_train, T = T, seed= 2024, noise_type = noise_type)
+            yn_train = flip_labels(y_train, u_vec) #XOR
 
-                disagreement_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T, epsilon = epsilon)
+            disagreement_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T, epsilon = epsilon)
 
-                disagreement_tests[noise_level] = disagreement_test
-                model, test_preds = train_model_abstain(X_train, yn_train, X_test, y_test, model_type=model_type)
+            model, test_preds = train_model_abstain(X_train, yn_train, X_test, y_test, model_type=model_type)
 
-                for threshold in np.linspace(0,100,100): ##
-                    abstain_test = abstain(disagreement_test, threshold)
+            noise_levels.append(noise_level)
+            losses.append("BCE")
+            dis.append(disagreement_test)
+            preds.append(test_preds)
 
-                    regret = 100*sum(abs(test_preds-y_test)*(1-abstain_test))/len(y_test)
-                    coverage = 100*sum(1-abstain_test)/len(y_test)
+            
+            for loss in ["backward", "forward"]:
+                model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T,  seed=2024, num_epochs=100, batch_size = 256, correction_type=loss, model_type = model_type)
+                
+                test_preds = results[-1]
 
-                    regrets.append(regret)
-                    coverages.append(coverage)
-                    thresholds.append(threshold)
-                    noise_levels.append(noise_level)
-                    iterations.append(base_seed)
+                noise_levels.append(noise_level)
+                losses.append(loss)
+                dis.append(disagreement_test)
+                preds.append(test_preds)
 
-
-                # Create a DataFrame from the arrays
-        data = pd.DataFrame({'Regret': regrets, 'Coverage': coverages, 'Noise Level': noise_levels, "Threshold":thresholds, "Iteration": iterations})
+        data = {'noise': noise_levels, 'loss': losses, "disagreement_test":dis, "test_preds":preds}
 
         path = os.path.join(files_path, f"{epsilon}.pkl")
 
@@ -110,3 +117,64 @@ if __name__ == '__main__':
         with open(path, 'wb') as file:
             # Use pickle to write the dictionary to the file
             pkl.dump(data, file)
+
+        print(timeit.default_timer() - start_time)
+
+    elif noise_type == "class_conditional":
+
+        fixed_classes = [0]
+        fixed_noises = [0.0, 0.1]
+
+        noise_levels = []
+        fixed_classes = []
+        fixed_noises = []
+        losses = []
+        dis = []
+        preds = []
+
+        for fixed_class in fixed_classes:
+            for i, fixed_noise in enumerate(fixed_noises):
+                
+
+                for noise_level in [0.1, 0.2, 0.3, 0.4, 0.45]:
+
+                    
+                    _, T_true = generate_class_conditional_noise(y_train, noise_level, fixed_class, fixed_noise)
+
+                    u_vec = get_u(y_train, T = T, seed= 2024, noise_type = noise_type)
+                    yn_train = flip_labels(y_train, u_vec) #XOR
+
+                    disagreement_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T, epsilon = epsilon)
+
+                    model, test_preds = train_model_abstain(X_train, yn_train, X_test, y_test, model_type=model_type)
+
+                    noise_levels.append(noise_level)
+                    fixed_classes.append(fixed_class)
+                    fixed_noises.append(fixed_noise)
+                    losses.append("BCE")
+                    dis.append(disagreement_test)
+                    preds.append(test_preds)
+
+                    
+                    for loss in ["backward", "forward"]:
+                        model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T,  seed=2024, num_epochs=100, batch_size = batch_size, correction_type=loss, model_type = model_type)
+                        
+                        test_preds = results[-1]
+
+                        noise_levels.append(noise_level)
+                        fixed_classes.append(fixed_class)
+                        fixed_noises.append(fixed_noise)
+                        losses.append(loss)
+                        dis.append(disagreement_test)
+                        preds.append(test_preds)
+
+        data = {'noise': noise_levels, 'loss': losses, "disagreement_test":dis, "test_preds":preds, "fixed_noise":fixed_noises, "fixed_class":fixed_classes}
+
+        path = os.path.join(files_path, f"{epsilon}.pkl")
+
+            # Open a file for writing in binary mode
+        with open(path, 'wb') as file:
+            # Use pickle to write the dictionary to the file
+            pkl.dump(data, file)
+
+        print(timeit.default_timer() - start_time)
