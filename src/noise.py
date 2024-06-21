@@ -37,7 +37,7 @@ def adjust_transition_matrix(T, adjustment_factor):
     for i in range(n):
         for j in range(n):
             if i != j:
-                T_adj[i, j] = T[i, j] * (1 + adjustment_factor)
+                T_adj[i, j] = T[i, j] +( adjustment_factor)
                 T_adj[i, i] = 1 - T_adj[i, j]
     return T_adj
 

@@ -15,5 +15,5 @@
 
 source /pkgs/anaconda3/bin/activate noisyTS
 
-python3 -u run_abstain.py  --noise_type $1 --model_type $2 --dataset $3 
+python3 -u run_abstain.py  --noise_type $1 --model_type $2 --dataset $3 --misspecify $4
 

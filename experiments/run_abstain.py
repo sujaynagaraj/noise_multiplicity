@@ -35,6 +35,9 @@ parser.add_argument('--model_type', type =str, default="LR", help="LR or NN")
 parser.add_argument('--dataset', type =str, default="cshock_mimic", help="dataset choice")
 parser.add_argument('--epsilon', type =float, default=0.1, help="number of models to train")
 
+# Add a boolean argument that defaults to False, but sets to True when specified
+parser.add_argument('--misspecify', type=str, default = "correct" ,help="over or under-estimate T")
+
 args = parser.parse_args()
 
 #####################################################################################################
@@ -53,11 +56,12 @@ if __name__ == '__main__':
     model_type = args.model_type
     dataset = args.dataset
     epsilon = args.epsilon
+    misspecify = args.misspecify
 
     # Parent directory for saving figures
     #parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))
     parent_dir = "/scratch/hdd001/home/snagaraj/"
-    files_path = os.path.join(parent_dir, "results", "abstain", dataset, args.model_type, args.noise_type)
+    files_path = os.path.join(parent_dir, "results", "abstain", dataset, args.model_type, args.noise_type, args.misspecify)
 
     if not os.path.exists(files_path):
         os.makedirs(files_path)
@@ -79,37 +83,77 @@ if __name__ == '__main__':
     if noise_type == "class_independent":
         noise_levels = []
         losses = []
-        dis = []
-        preds = []
+        dis_train = []
+        amb_train = []
+        probs_train = []
 
-        for noise_level in [0.1, 0.2, 0.3, 0.4, 0.45]:
+        dis_test = []
+        amb_test = []
+        probs_test = []
+        draw_ids = []
+
+        for noise_level in [0.01, 0.05, 0.2,  0.4]:
             
-            _, T = generate_class_independent_noise(y_train, noise_level)
+            _, T_true = generate_class_independent_noise(y_train, noise_level) #Fixed noise draw
+        
+            if misspecify == "over": #Estimate more noise than true T
+                T_est = adjust_transition_matrix(T_true, 0.1)
+                misspecify_flag = True
+            if misspecify == "under": #Estimate less noise than true T
+                assert(noise_level!=0)
+                T_est = adjust_transition_matrix(T_true, -0.1)
+                misspecify_flag = True
+            elif misspecify == "correct": #Correct T
+                T_est = T_true
+                misspecify_flag = False
+            else:
+                continue
 
-            u_vec = get_u(y_train, T = T, seed= 2024, noise_type = noise_type)
-            yn_train = flip_labels(y_train, u_vec) #XOR
+            for seed in range(5):
+                u_vec = get_u(y_train, T = T_true, seed= seed, noise_type = noise_type)
+                yn_train = flip_labels(y_train, u_vec) #XOR
 
-            disagreement_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T, epsilon = epsilon)
+                disagreement_train, disagreement_test, ambiguity_train, ambiguity_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
 
-            model, test_preds = train_model_abstain(X_train, yn_train, X_test, y_test, model_type=model_type)
-
-            noise_levels.append(noise_level)
-            losses.append("BCE")
-            dis.append(disagreement_test)
-            preds.append(test_preds)
-
-            
-            for loss in ["backward", "forward"]:
-                model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T,  seed=2024, num_epochs=100, batch_size = 256, correction_type=loss, model_type = model_type)
-                
-                test_preds = results[-1]
+                model, (train_acc,
+                                test_acc,
+                                train_probs,
+                                test_probs,
+                                train_loss,
+                                test_loss,
+                                train_preds,
+                                test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
 
                 noise_levels.append(noise_level)
-                losses.append(loss)
-                dis.append(disagreement_test)
-                preds.append(test_preds)
+                losses.append("BCE")
+                dis_train.append(disagreement_train)
+                amb_train.append(ambiguity_train)
+                probs_train.append(train_probs)
 
-        data = {'noise': noise_levels, 'loss': losses, "disagreement_test":dis, "test_preds":preds}
+                dis_test.append(disagreement_test)
+                amb_test.append(ambiguity_test)
+                probs_test.append(test_probs)
+                draw_ids.append(seed)
+
+                
+                for loss in ["backward", "forward"]:
+                    model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T_est,  seed=2024, num_epochs=100, batch_size = 256, correction_type=loss, model_type = model_type)
+                    
+                    train_probs = results[4]
+                    test_probs = results[7]
+
+                    noise_levels.append(noise_level)
+                    losses.append(loss)
+                    dis_train.append(disagreement_train)
+                    amb_train.append(ambiguity_train)
+                    probs_train.append(train_probs)
+
+                    dis_test.append(disagreement_test)
+                    amb_test.append(ambiguity_test)
+                    probs_test.append(test_probs)
+                    draw_ids.append(seed)
+
+        data = {'noise': noise_levels, 'loss': losses, "disagreement_test":dis_test, "ambiguity_train":amb_train, "ambiguity_test":amb_test, "disagreement_train":dis_train ,"test_probs":probs_test, "train_probs":probs_train, "draw_id":draw_ids }
 
         path = os.path.join(files_path, f"{epsilon}.pkl")
 
@@ -121,54 +165,86 @@ if __name__ == '__main__':
         print(timeit.default_timer() - start_time)
 
     elif noise_type == "class_conditional":
-
-        fixed_classes = [0]
-        fixed_noises = [0.0, 0.1]
+        classes = [0]
+        noises = [0.0, 0.1]
 
         noise_levels = []
         fixed_classes = []
         fixed_noises = []
         losses = []
-        dis = []
-        preds = []
+        dis_train = []
+        amb_train = []
+        probs_train = []
 
-        for fixed_class in fixed_classes:
-            for i, fixed_noise in enumerate(fixed_noises):
-                
+        dis_test = []
+        amb_test = []
+        probs_test = []
+        draw_ids = []
 
-                for noise_level in [0.1, 0.2, 0.3, 0.4, 0.45]:
+        for fixed_class in classes:
+            for i, fixed_noise in enumerate(noises):
+                for noise_level in [0.01, 0.05, 0.2,  0.4]:
 
-                    
                     _, T_true = generate_class_conditional_noise(y_train, noise_level, fixed_class, fixed_noise)
 
-                    u_vec = get_u(y_train, T = T, seed= 2024, noise_type = noise_type)
-                    yn_train = flip_labels(y_train, u_vec) #XOR
 
-                    disagreement_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T, epsilon = epsilon)
+                    if misspecify == "correct": #Estimate more noise than true T
+                        T_est = T_true
+                        misspecify_flag = False
+                    else : 
+                        T_est = np.array([[T_true[1, 1], T_true[1, 0]], 
+                                        [T_true[0, 1], T_true[0, 0]]]) 
+                        misspecify_flag = True
 
-                    model, test_preds = train_model_abstain(X_train, yn_train, X_test, y_test, model_type=model_type)
+                    for seed in range(5):
+                        u_vec = get_u(y_train, T = T_true, seed= seed, noise_type = noise_type)
+                        yn_train = flip_labels(y_train, u_vec) #XOR
 
-                    noise_levels.append(noise_level)
-                    fixed_classes.append(fixed_class)
-                    fixed_noises.append(fixed_noise)
-                    losses.append("BCE")
-                    dis.append(disagreement_test)
-                    preds.append(test_preds)
+                        disagreement_train, disagreement_test, ambiguity_train, ambiguity_test = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
 
-                    
-                    for loss in ["backward", "forward"]:
-                        model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T,  seed=2024, num_epochs=100, batch_size = batch_size, correction_type=loss, model_type = model_type)
-                        
-                        test_preds = results[-1]
+                        model, (train_acc,
+                                test_acc,
+                                train_probs,
+                                test_probs,
+                                train_loss,
+                                test_loss,
+                                train_preds,
+                                test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
 
                         noise_levels.append(noise_level)
                         fixed_classes.append(fixed_class)
                         fixed_noises.append(fixed_noise)
-                        losses.append(loss)
-                        dis.append(disagreement_test)
-                        preds.append(test_preds)
+                        losses.append("BCE")
+                        dis_train.append(disagreement_train)
+                        amb_train.append(ambiguity_train)
+                        probs_train.append(train_probs)
 
-        data = {'noise': noise_levels, 'loss': losses, "disagreement_test":dis, "test_preds":preds, "fixed_noise":fixed_noises, "fixed_class":fixed_classes}
+                        dis_test.append(disagreement_test)
+                        amb_test.append(ambiguity_test)
+                        probs_test.append(test_probs)
+                        draw_ids.append(seed)
+
+                        
+                        for loss in ["backward", "forward"]:
+                            model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T_est,  seed=2024, num_epochs=100, batch_size = batch_size, correction_type=loss, model_type = model_type)
+                            
+                            test_probs = results[7]
+                            train_probs = results[4]
+
+                            noise_levels.append(noise_level)
+                            fixed_classes.append(fixed_class)
+                            fixed_noises.append(fixed_noise)
+                            losses.append(loss)
+                            dis_train.append(disagreement_train)
+                            amb_train.append(ambiguity_train)
+                            probs_train.append(train_probs)
+
+                            dis_test.append(disagreement_test)
+                            amb_test.append(ambiguity_test)
+                            probs_test.append(test_probs)
+                            draw_ids.append(seed)
+
+        data = {'noise': noise_levels, 'loss': losses, "ambiguity_test":amb_test, "ambiguity_train":amb_train, "disagreement_test":dis_test, "disagreement_train":dis_train, "test_probs":probs_test, "train_probs":probs_train, "fixed_noise":fixed_noises, "fixed_class":fixed_classes, "draw_id":draw_ids}
 
         path = os.path.join(files_path, f"{epsilon}.pkl")
 

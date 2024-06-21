@@ -81,7 +81,7 @@ def load_metrics(model_type, noise_type, uncertainty_type, metric, group = "age"
     return pd.DataFrame(rows)
 
 
-def load_dataset(dataset, include_groups = False):
+def load_dataset(dataset, include_groups = True):
     
     #dataset = "cshock_eicu"
 
@@ -276,7 +276,7 @@ def load_dataset_splits(dataset, group=""):
 
 if __name__ == "__main__":
 
-    datasets = ["cshock_eicu", "cshock_mimic", "lungcancer", "saps", "support"]
+    datasets = ["cshock_eicu", "cshock_mimic"]
 
     random_state = 2024
 
@@ -290,8 +290,8 @@ if __name__ == "__main__":
 
         
         for group in groups_dict.keys():
-            features, labels, groups = balance_data(X, y, saps = False, groups = groups_dict[group])
-
+            #features, labels, groups = balance_data(X, y, saps = False, groups = groups_dict[group])
+            feauturs, labels, groups = X, y, groups_dict[group]
             X_train, X_test, y_train, y_test, group_train, group_test = train_test_split(features, 
                                                                 labels, 
                                                                 groups,
@@ -301,7 +301,7 @@ if __name__ == "__main__":
             y_train = y_train.astype(int)
             y_test = y_test.astype(int)
             
-            filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_processed.pkl")
+            filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_imbalanced_processed.pkl")
 
             with open(filepath, 'wb') as file:
                 # Use pickle to write the dictionary to the file

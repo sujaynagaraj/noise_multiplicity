@@ -158,4 +158,23 @@ def compute_overlap(array1, array2, threshold, overlap_metric="dice"):
         raise ValueError("Unsupported metric specified. Use 'iou' or 'dice'.")
 
 
+def regret_FPR_FNR(err_true, err_anticipated):
+    # Ensure the input arrays are numpy arrays
+    err_true = np.array(err_true)
+    err_anticipated = np.array(err_anticipated)
+
+    # Calculate False Positives (FP) and False Negatives (FN)
+    false_positives = np.where((err_anticipated == 1) & (err_true == 0))[0]
+    false_negatives = np.where((err_anticipated == 0) & (err_true == 1))[0]
+
+    # Calculate the number of true negatives and true positives
+    true_negatives = np.sum(1 - err_true)
+    true_positives = np.sum(err_true)
+
+    # Calculate the rates with checks for division by zero
+    fp_rate = len(false_positives) / true_negatives if true_negatives > 0 else 0
+    fn_rate = len(false_negatives) / true_positives if true_positives > 0 else 0
+
+    return fp_rate, false_positives, fn_rate, false_negatives
+
 

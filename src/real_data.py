@@ -171,7 +171,7 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
         predictions_test = np.array(preds_test_dict[loss])
 
         try:
-            regret_train = calculate_error_rate(predictions_train, y_train)
+            regret_train = calculate_error_rate(predictions_train, flipped_labels)
             disagreement_train = estimate_disagreement(predictions_train)
 
             regret_test = calculate_error_rate(predictions_test, y_test)
@@ -197,10 +197,11 @@ def abstain(rates, threshold):
     rates = np.clip(rates, 0, 100)
     return ((rates > threshold)).astype(int)
 
-def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25):
+def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25, misspecify = False):
     
     typical_count = 0
     preds_test = []
+    preds_train = []
     
     y_vec = yn_train
     
@@ -210,6 +211,9 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
         
         typical_flag, _ = is_typical(u_vec, p_y_x_dict, group = group_train,  T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
 
+        if misspecify:
+            typical_flag = True
+            
         if not typical_flag:
             continue
             
@@ -226,6 +230,7 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
                 ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
         
         preds_test.append(test_preds)
+        preds_train.append(train_preds)
 
         typical_count += 1
 
@@ -234,9 +239,14 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
             
     predictions_test = np.array(preds_test)
     disagreement_test = estimate_disagreement(predictions_test)
+    ambiguity_test = calculate_error_rate(predictions_test, y_test)
+
+    predictions_train = np.array(preds_train)
+    disagreement_train = estimate_disagreement(predictions_train)
+    ambiguity_train = calculate_error_rate(predictions_train, y_vec)
 
 
-    return disagreement_test
+    return disagreement_train, disagreement_test, ambiguity_train, ambiguity_test
 
 def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
     # Set random seed for reproducibility
@@ -258,21 +268,22 @@ def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
     model.fit(X_train, y_train)
 
     # Predictions for training and test sets
+    train_preds = model.predict(X_train)
     test_preds = model.predict(X_test)
 
     
  
-    return model, test_preds
+    return model, train_preds, test_preds
 
 
 
 
 
-def run_procedure_regret(m, max_iter, X_train, yn_train,  p_y_x_dict,  noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.1):
+def run_procedure_regret(m, max_iter, X_train, yn_train, X_test, y_test,  p_y_x_dict,  noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.1):
     
     typical_count = 0
     preds_train = []
-    preds_val = []
+    preds_test = []
     
     y_vec = yn_train
     
@@ -288,12 +299,16 @@ def run_procedure_regret(m, max_iter, X_train, yn_train,  p_y_x_dict,  noise_typ
         flipped_labels = flip_labels(y_vec, u_vec)
         
         model,  (train_acc,
+                test_acc,
                 train_probs,
+                test_probs,
                 train_loss,
-                train_preds
-                    )= train_model_ours_regret(X_train, flipped_labels, seed = 2024, model_type="LR")
+                test_loss,
+                train_preds,
+                test_preds)= train_model_ours_regret(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
         
         preds_train.append(train_preds)
+        preds_test.append(test_preds)
 
         typical_count += 1
 
@@ -302,10 +317,13 @@ def run_procedure_regret(m, max_iter, X_train, yn_train,  p_y_x_dict,  noise_typ
             
     predictions_train = np.array(preds_train)
     disagreement_train = estimate_disagreement(predictions_train)
-    
+    ambiguity_train = calculate_error_rate(predictions_train, y_vec)
 
+    predictions_test = np.array(preds_test)
+    disagreement_test = estimate_disagreement(predictions_test)
+    ambiguity_test = calculate_error_rate(predictions_test, y_test)
 
-    return predictions_train, disagreement_train
+    return predictions_train, predictions_test, disagreement_train, disagreement_test, ambiguity_train, ambiguity_test
 
 
 class Metrics:
@@ -343,39 +361,8 @@ class Vectors:
         return self.vectors.get(method, {}).get(draw_id, {})
 
 
-class MetricsCalculator:
-    def __init__(self, vectors):
-        self.vectors = vectors
-        self.metrics = Metrics()
 
-    def calculate_metrics(self, draw_id):
-        instance_err_true_train = self.vectors.get_vector("metadata", draw_id, "instance_err_true_train")
-        instance_err_true_test = self.vectors.get_vector("metadata", draw_id, "instance_err_true_test")
-        for err_method in self.vectors.vectors.keys():
-            if err_method!= "metadata":
-                yn_train = self.vectors.get_vector(err_method, draw_id, "yn_train")
-                train_preds = self.vectors.get_vector(err_method, draw_id, "train_preds")
-                y_train = self.vectors.get_vector(err_method, draw_id, "y_train")
-
-
-                instance_err_anticipated_train = self.vectors.get_vector(err_method, draw_id, "instance_err_anticipated_train")
-                empirical_regret_train, regret_instances_train = instance_01loss(instance_err_true_train, instance_err_anticipated_train)
-                fpr_train, fp_train, fnr_train, fn_train = regret_FPR_FNR(instance_err_true_train, instance_err_anticipated_train)
-
-                self.metrics.add_metric(err_method, draw_id, "pop_err_anticipated_train", np.mean(instance_err_anticipated_train))
-                self.metrics.add_metric(err_method, draw_id, "pop_err_true_train", np.mean(instance_err_true_train))
-                self.metrics.add_metric(err_method, draw_id, "empirical_regret_train", empirical_regret_train)
-                self.metrics.add_metric(err_method, draw_id, "regret_indices_train", np.where(regret_instances_train == 1)[0])
-                self.metrics.add_metric(err_method, draw_id, "fpr_train", fpr_train)
-                self.metrics.add_metric(err_method, draw_id, "fnr_train", fnr_train)
-                self.metrics.add_metric(err_method, draw_id, "fps_train", np.where(fp_train == 1)[0])
-                self.metrics.add_metric(err_method, draw_id, "fns_train", np.where(fn_train == 1)[0])
-
-    def get_metrics(self):
-        return self.metrics
-
-
-def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, training_loss="None", n_draws=5):
+def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, training_loss="None", n_draws=5, batch_size=256):
     X_train, X_test, y_train, y_test, group_train, group_test = load_dataset_splits(dataset, group="age")
 
     y_train = y_train.astype(int)
@@ -392,7 +379,7 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         model, (train_preds, test_preds,
                 train_probs, test_probs) = train_model_regret_torch(
             X_train, yn_train, y_train, X_test, y_test, T,
-            seed=2024, num_epochs=100, batch_size=256, correction_type=training_loss, model_type=model_type)
+            seed=2024, num_epochs=50, batch_size=batch_size, correction_type=training_loss, model_type=model_type)
 
         # True Population Error
         pop_err_true_train, instance_err_true_train = instance_01loss(y_train, train_preds)
@@ -407,6 +394,7 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "n_draws", n_draws)
         vectors.add_vector("metadata", draw_id, "T", T)
         vectors.add_vector("metadata", draw_id, "y_train", y_train)
+        vectors.add_vector("metadata", draw_id, "y_test", y_test)
         vectors.add_vector("metadata", draw_id, "train_preds", train_preds)
         vectors.add_vector("metadata", draw_id, "train_probs", train_probs)
         vectors.add_vector("metadata", draw_id, "test_preds", test_preds)
@@ -415,25 +403,26 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "instance_err_true_train", instance_err_true_train)
         vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
 
-        for err_method in ["01", "forward", "backward", "ours"]:
-            if err_method == "01":
-                pop_err_anticipated_train, instance_err_anticipated_train = instance_01loss(yn_train, train_preds)
-                
-            elif err_method == "forward":
-                pop_err_anticipated_train, instance_err_anticipated_train = instance_forward_01loss(yn_train, train_probs, T)
+        (preds_train, 
+        preds_test,
+        disagreement_train,
+        disagreement_test,
+        ambiguity_train,
+        ambiguity_test) = run_procedure_regret(
+                        n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict,
+                        noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
 
-            elif err_method == "backward":
-                pop_err_anticipated_train_CONT, instance_err_anticipated_train_CONT, pop_err_anticipated_train, instance_err_anticipated_train = natarajan_unbiased_01_loss(yn_train, train_preds, T)
-                
-            elif err_method == "ours":
-                preds_train, disagreement_train = run_procedure_regret(
-                    n_models, max_iter, X_train, yn_train, p_y_x_dict,
-                    noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
+        disagreement_train = disagreement_train / 100
+        ambiguity_train = ambiguity_train / 100
+        disagreement_test = disagreement_test / 100
+        ambiguity_test = ambiguity_test / 100
 
-                disagreement_train = disagreement_train / 100
-                vectors.add_vector(err_method, draw_id, "disagreement_train", disagreement_train)
-                instance_err_anticipated_train = (disagreement_train>0).astype(int)
+        vectors.add_vector("metadata", draw_id, "disagreement_train", disagreement_train)
+        vectors.add_vector("metadata", draw_id, "ambiguity_train", ambiguity_train)
+        vectors.add_vector("metadata", draw_id, "disagreement_test", disagreement_test)
+        vectors.add_vector("metadata", draw_id, "ambiguity_test", ambiguity_test)
+        #instance_err_anticipated_train = (disagreement_train>0).astype(int)
             
-            vectors.add_vector(err_method, draw_id, "instance_err_anticipated_train", instance_err_anticipated_train)
+            #vectors.add_vector(err_method, draw_id, "instance_err_anticipated_train", instance_err_anticipated_train)
 
     return vectors

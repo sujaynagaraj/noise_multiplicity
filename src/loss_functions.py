@@ -65,25 +65,6 @@ def forward_loss(outputs, labels, T, device, noise_type = "class_independent"):
     return loss
 
 
-def instance_01loss(y_true, y_pred):
-    """
-    Calculate the mean 0-1 loss for a set of predictions and the instance-level loss.
-    :param y_true: The true labels.
-    :param y_pred: The predicted labels.
-    :return: A tuple containing the mean 0-1 loss and the instance-level loss.
-    """
-    # Convert y_true and y_pred to numpy arrays if they are not already
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    
-    # Calculate the instance-level loss
-    instance_losses = np.where(y_true == y_pred, 0, 1)
-    
-    # Calculate the batch loss as the mean of the instance-level losses
-    batch_loss = np.mean(instance_losses)
-    
-    return batch_loss, instance_losses
-
 
 
 
@@ -128,7 +109,31 @@ def instance_backward_01loss(y_true, y_pred, T, threshold=0):
     return batch_loss_binary, instance_losses_binary
 
 
-def natarajan_unbiased_01_loss(y_true, y_pred, T, threshold=0):
+def instance_01loss(y_true, y_pred):
+    """
+    Calculate the mean 0-1 loss for a set of predictions and the instance-level loss.
+    :param y_true: The true labels.
+    :param y_pred: The predicted labels.
+    :return: A tuple containing the mean 0-1 loss and the instance-level loss.
+    """
+    # Convert y_true and y_pred to numpy arrays if they are not already
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    
+    # Calculate the instance-level loss
+    #instance_losses = np.where(y_true == y_pred, 0, 1)
+    instance_losses = np.not_equal(y_true, y_pred)
+    
+    # Calculate the batch loss as the mean of the instance-level losses
+    batch_loss = np.mean(instance_losses)
+    
+    return batch_loss, instance_losses.astype(int)
+
+
+
+
+
+def natarajan_unbiased_01_loss(y_true, y_pred, T):
     """
     Calculate the Natarajan Unbiased 0-1 Loss for a set of predictions using individual noise rates for each class.
 
@@ -172,30 +177,13 @@ def natarajan_unbiased_01_loss(y_true, y_pred, T, threshold=0):
 
     batch_loss = np.mean(instance_losses)
     
-    instance_losses_binary = (instance_losses>threshold).astype(int)
+    #instances_losses = np.clip(instances_losses, 0, 1)
+
+    instance_losses_binary = np.clip(instance_losses, 0, 1)
     # Calculate the mean corrected loss
     batch_loss_binary = np.mean(instance_losses_binary)
 
-    return batch_loss, instance_losses, batch_loss_binary, instance_losses_binary
-
-
-def regret_FPR_FNR(err_true, err_anticipated):
-    # Ensure the input arrays are numpy arrays
-    err_true = np.array(err_true)
-    err_anticipated = np.array(err_anticipated)
-
-    # Calculate False Positives (FP) and False Negatives (FN)
-    false_positives = np.where((err_anticipated == 1) & (err_true == 0))[0]
-    false_negatives = np.where((err_anticipated == 0) & (err_true == 1))[0]
-    
-    negatives = 1-err_true
-    
-    # Calculate the rates
-    fp_rate = len(false_positives) / np.sum(negatives)
-    fn_rate = len(false_negatives) / np.sum(err_true)
-
-    return fp_rate, false_positives, fn_rate, false_negatives
-
+    return batch_loss, instance_losses, batch_loss_binary, instance_losses_binary.astype(int)
 
 
 def instance_forward_01loss(y_true, y_probs, T):
@@ -217,8 +205,9 @@ def instance_forward_01loss(y_true, y_probs, T):
 
     # Convert probabilities to binary predictions
     y_pred = np.argmax(noisy_posterior, axis=1)
+
     
     # Calculate loss using the modified zero_one_loss function
     batch_loss, instance_losses = instance_01loss(y_true, y_pred)
     
-    return batch_loss, instance_losses
+    return batch_loss, instance_losses.astype(int)

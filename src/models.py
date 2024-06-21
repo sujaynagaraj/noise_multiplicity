@@ -377,7 +377,7 @@ def train_LR_noise_variance(X_train, y_train, X_test, y_test, num_models=1000, n
     return np.array(predicted_probabilities), np.array(accuracies)
 
 
-def train_model_ours_regret(X_train, y_train, seed, model_type="LR"):
+def train_model_ours_regret(X_train, y_train, X_test, y_test, seed, model_type="LR"):
     # Set random seed for reproducibility
 
     np.random.seed(seed)
@@ -397,25 +397,33 @@ def train_model_ours_regret(X_train, y_train, seed, model_type="LR"):
 
     # Predictions for training and test sets
     train_preds = model.predict(X_train)
-
+    test_preds = model.predict(X_test)
 
     # Calculate accuracies
     train_acc = accuracy_score(y_train, train_preds)
+    test_acc = accuracy_score(y_test, test_preds)
 
     if model_type == "SVM":
         train_probs = model.decision_function(X_train)
+        test_probs = model.decision_function(X_test)
         
     else:
         train_probs = model.predict_proba(X_train)
+        test_probs = model.predict_proba(X_test)
         
     # Calculate log losses
     train_loss = log_loss(y_train, train_probs)
+    test_loss = log_loss(y_test, test_probs)
         
 
     results = (train_acc,
+                test_acc,
                 train_probs,
+                test_probs,
                 train_loss,
-                train_preds)
+                test_loss,
+                train_preds,
+                test_preds)
         
 
     return model, results

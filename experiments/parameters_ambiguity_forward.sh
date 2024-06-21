@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-declare -a noise_types=("class_independent" "class_conditional" "group")
+declare -a noise_types=("class_independent" "class_conditional")
 declare -a model_types=("LR" "NN")
-declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer")
+declare -a datasets=("cshock_mimic")
 declare -a noise_levels=(0.0 0.05 0.01 0.1 0.2 0.4)
 
 for i in {0..1}
 do
     for j in {0..1}
     do
-        for k in {0..4}
+        for k in {0..0}
         do
             for h in {0..5}
             do
@@ -27,7 +27,7 @@ do
                 # Check if the file exists
                 if [ -f "$file_direction/$file_name" ]; then
                     echo "File found: $file_direction/$file_name"
-                    #sbatch launch_ambiguity_forward.sh $noise_type $model_type $dataset $noise_level
+                    sbatch launch_ambiguity_forward.sh $noise_type $model_type $dataset $noise_level
                     
                 else
                     echo "File not found: $file_direction/$file_name"
