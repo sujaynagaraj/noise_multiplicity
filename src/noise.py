@@ -159,7 +159,6 @@ def flip_labels(y, u):
 
 def calculate_prior(y, group, noise_type = "class_independent"):
     
-    
     p_y_x_dict = {}
     for g in np.unique(group, axis=0):
         

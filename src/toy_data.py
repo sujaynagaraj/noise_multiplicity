@@ -7,15 +7,18 @@ from src.noise import *
 from src.metrics import *
 from src.plotting import *
 from src.generate_data import *
+from src.abstain import *
 
 import sklearn
 import pandas as pd
 
 from operator import xor
+from collections import defaultdict
 
 from scipy.stats import bernoulli
 
 import random
+import itertools
 
 
 def logistic(x):
@@ -60,10 +63,10 @@ def generate_dataset(true_labels, instances_counts, probabilistic = False, weigh
     :return: Shuffled features and probabilistic labels.
     """
     features, labels = [], []
-    for (x1, x2), label in true_labels.items():
-        n_instances = instances_counts[(x1, x2)]
+    for X, label in true_labels.items():
+        n_instances = instances_counts[X]
         #features.extend([(1, x1, x2)] * n_instances)  # Add a 1 for the bias term in logistic regression
-        features.extend([(x1, x2)] * n_instances) 
+        features.extend([X] * n_instances) 
         if not probabilistic:
             labels.extend([label] * n_instances)
 
@@ -73,9 +76,9 @@ def generate_dataset(true_labels, instances_counts, probabilistic = False, weigh
     if probabilistic:
     # Generate probabilistic labels
         #labels = generate_probabilistic_labels(features, weights, random_seed=seed)
-        for i, (x1,x2) in enumerate(features):
+        for i, X in enumerate(features):
             np.random.seed(i)
-            p_y_x = p_y_x_dict[(x1,x2)]
+            p_y_x = p_y_x_dict[X]
             label =  bernoulli.rvs(p=p_y_x[1], size=1)[0]
             labels.append(label)
 
@@ -669,3 +672,643 @@ def calculate_priors_toy(true_labels, instances_counts):
         p_y_x_dict[(x1, x2)] = np.array([complementary_prior, prior]) if label == 1 else np.array([prior, complementary_prior])
     
     return p_y_x_dict
+
+
+def get_value_counts(arr):
+    value_counts = defaultdict(int)
+    
+    if arr.ndim == 2:
+        # 2D array
+        for row in arr:
+            # Convert row to a tuple
+            row_tuple = tuple(row)
+            # Increment the count for this tuple in the dictionary
+            value_counts[row_tuple] += 1
+    elif arr.ndim == 1:
+        # 1D array
+        for item in arr:
+            # Increment the count for this item in the dictionary
+            value_counts[item] += 1
+    
+    return dict(value_counts)
+
+
+
+def generate_all_pairs(d):
+    """
+    Generate all possible binary tuples of length d.
+
+    Args:
+        d (int): The dimension of the binary tuple.
+
+    Returns:
+        list: A list of tuples representing all possible pairs.
+    """
+    return list(itertools.product([0, 1], repeat=d))
+
+def complete_binary_dict(d, input_dict):
+    # Define all possible 2-value binary combinations
+    all_pairs = generate_all_pairs(d)
+    
+    # Check and add missing pairs
+    for pair in all_pairs:
+        if pair not in input_dict:
+            input_dict[pair] = 0
+    
+    return input_dict
+
+
+
+def regret_toy(d, X, y, noise_type, T, loss_type="0-1", n_draws=10, epsilon=0.1):
+    """
+    Generate a dictionary of ambiguity rates across a range of noise levels.
+    
+    :param noise_levels: A list or array of noise levels to test.
+    :param X: The input features for the dataset.
+    :param y: The true labels for the dataset.
+    :param true_labels: The true labels dictionary for generating the dataset.
+    :param instances_counts: The instances counts for generating the dataset.
+    :return: A dictionary with keys as instances and values as lists of ambiguity rates.
+    """
+    
+    group = np.repeat(0, len(y))
+    
+    p_y_x_dict = calculate_prior(y, group, noise_type=noise_type)  # Clean prior
+
+    typical_count = 0
+    preds_vec = []
+    
+    
+    results = {
+               "seed": [],
+               "typical":[],
+              "noisy_risk": [],
+              "clean_risk": [],
+              "regret": [],
+              "fpr/underreliance": [],
+              "fnr/overreliance": []}
+    
+    
+    max_iter = 10*n_draws
+    
+    instance_metrics = {
+        "instance": [],
+        "typical":[],
+        "seed": [],
+        "noisy_risk": [],
+        "clean_risk": [],
+        "regret": [],
+        "fpr/underreliance": [],
+        "fnr/overreliance": []
+    }
+    
+    class_metrics = {
+        "class": [],
+        "typical":[],
+        "seed": [],
+        "noisy_risk": [],
+        "clean_risk": [],
+        "regret": [],
+        "fpr/underreliance": [],
+        "fnr/overreliance": []
+    }
+    
+    for seed in tqdm(range(1, max_iter+1)):
+        u_vec = get_u(y, T=T, seed=seed, noise_type=noise_type)
+        
+        typical_flag, difference = is_typical(u_vec, p_y_x_dict,  T = T, y_vec = y, noise_type = noise_type, uncertainty_type = "forward", epsilon = epsilon)
+        
+        if typical_flag:    
+            typical_count+=1
+        
+        yn = flip_labels(y, u_vec)
+        
+        best_model_noisy, loss = bayes_model(d, X, yn, loss_type="0-1")
+        
+        preds = output_01(best_model_noisy, X)
+        
+        error_noisy, err_anticipated = instance_01loss(yn, preds)
+        error_clean, err_true = instance_01loss(y, preds)
+
+        fp_vec = ((err_anticipated == 1) & (err_true == 0))
+        fn_vec = ((err_anticipated == 0) & (err_true == 1))
+        
+        
+        _, regret_vec = instance_01loss(err_anticipated, err_true)
+        
+        results["typical"].append(str(typical_flag))
+        results["seed"].append(seed) 
+        results["noisy_risk"].append(np.mean(err_anticipated)*100)
+        results["clean_risk"].append(np.mean(err_true)*100)
+        results["fpr/underreliance"].append(np.mean(fp_vec)*100)
+        results["fnr/overreliance"].append(np.mean(fn_vec)*100)
+        results["regret"].append(np.mean(regret_vec)*100)
+        
+        # Calculate instance-level metrics
+        for instance in np.unique(X, axis=0):
+            mask = (X == instance).all(axis=1)
+            instance_metrics["instance"].append(str(instance))
+            instance_metrics["typical"].append(str(typical_flag))
+            instance_metrics["seed"].append(seed)
+            instance_metrics["noisy_risk"].append(np.mean(err_anticipated[mask]) * 100)
+            instance_metrics["clean_risk"].append(np.mean(err_true[mask]) * 100)
+            instance_metrics["regret"].append(np.mean(regret_vec[mask]) * 100)
+            instance_metrics["fpr/underreliance"].append(np.mean(fp_vec[mask]) * 100)
+            instance_metrics["fnr/overreliance"].append(np.mean(fn_vec[mask]) * 100)
+        
+        # Calculate class-level metrics
+        for class_val in np.unique(y):
+            mask = (y == class_val)
+            class_metrics["class"].append(class_val)
+            class_metrics["typical"].append(str(typical_flag))
+            class_metrics["seed"].append(seed)
+            class_metrics["noisy_risk"].append(np.mean(err_anticipated[mask]) * 100)
+            class_metrics["clean_risk"].append(np.mean(err_true[mask]) * 100)
+            class_metrics["regret"].append(np.mean(regret_vec[mask]) * 100)
+            class_metrics["fpr/underreliance"].append(np.mean(fp_vec[mask]) * 100)
+            class_metrics["fnr/overreliance"].append(np.mean(fn_vec[mask]) * 100)
+        
+        if typical_count == n_draws:
+            break
+        
+    metrics_df = pd.DataFrame(results)
+    instance_metrics_df = pd.DataFrame(instance_metrics)
+    class_metrics_df = pd.DataFrame(class_metrics)
+
+    return metrics_df, instance_metrics_df, class_metrics_df
+
+
+def toy_data_helper(d, X, y, noise_type, noise_level, T, n_draws, loss_type, epsilon, metrics_dfs, instance_metrics_dfs, class_metrics_dfs):
+    metrics_df, instance_metrics_df, class_metrics_df = regret_toy(d, X, y, noise_type=noise_type, n_draws=n_draws, T=T, loss_type=loss_type, epsilon=epsilon)
+
+    metrics_df["noise"], instance_metrics_df["noise"], class_metrics_df["noise"] = noise_level, noise_level, noise_level
+
+    metrics_dfs.append(metrics_df)
+    instance_metrics_dfs.append(instance_metrics_df)
+    class_metrics_dfs.append(class_metrics_df)
+
+
+
+def plot_regret_toy(metrics_df, instance_metrics_df, class_metrics_df):
+    # Overall metrics plot for typical == True
+    melted_df = metrics_df.melt(id_vars=['seed', 'typical', 'noise'], 
+                                value_vars=['noisy_risk', 'clean_risk', 'fpr/underreliance', 'fnr/overreliance'], 
+                                var_name='metric', value_name='value')
+    melted_df['style'] = melted_df['metric'].apply(lambda x: 'risk' if 'risk' in x else 'other')
+    
+    # Defining a color palette that forces similar colors within each style
+    palette = {
+        'noisy_risk': '#4287f5',
+        'clean_risk': '#7142c2',
+        'fpr/underreliance': '#ebe534',
+        'fnr/overreliance': '#c73326'
+    }
+
+    plt.figure(figsize=(7, 4))
+    sns.lineplot(data=melted_df[melted_df['typical'] == "True"], x='noise', y='value', hue='metric', style = 'style', palette=palette)
+    plt.xlabel('Noise')
+    plt.ylabel('Value')
+    plt.legend(title='Metric', loc='upper left', bbox_to_anchor=(1, 1))
+    plt.title('Metrics vs Noise (Typical == True)')
+
+    # Removing the style from the legend
+    handles, labels = plt.gca().get_legend_handles_labels()
+   
+    plt.legend(handles[1:-3], labels[1:-3], title='Metric', loc='upper left', bbox_to_anchor=(1, 1))
+    
+    # Define the metrics to plot
+    metrics = ["noisy_risk", "clean_risk", "regret", "fpr/underreliance", "fnr/overreliance"]
+
+    # Instance-level metrics plot
+    # Ensure the hue column is correct and free of any formatting issues
+    instance_metrics_df['instance'] = instance_metrics_df['instance'].str.strip()
+
+    fig, axes = plt.subplots(nrows=1, ncols=len(metrics), figsize=(20, 5), sharex=True)
+
+    for i, metric in enumerate(metrics):
+        sns.lineplot(
+            data=instance_metrics_df[instance_metrics_df["typical"] == "True"], 
+            x='noise', 
+            y=metric, 
+            hue='instance', 
+            ax=axes[i], 
+            marker='o', 
+            legend='full'  # Force the creation of the legend
+        )
+        axes[i].legend().remove()  # Remove the subplot legends
+        axes[i].set_title(metric)
+        axes[i].set_xlabel('Noise')
+        axes[i].set_ylabel(metric)
+
+    # Adjust layout to make room for the shared legend
+    plt.tight_layout()
+    plt.suptitle('Instance-level Metrics vs Noise', y=1.02)
+
+    # Now get handles and labels
+    handles, labels = axes[0].get_legend_handles_labels()
+
+    # Create a shared legend
+    fig.legend(handles=handles, labels=labels, loc='upper center', ncol=10, bbox_to_anchor=(0.5, -0.0), frameon=False)
+
+    # Adjust the space to accommodate the shared legend
+    plt.subplots_adjust(top=0.85, bottom=0.15)
+    plt.show()
+
+    # Class-level metrics plot
+    fig, axes = plt.subplots(nrows=1, ncols=len(metrics), figsize=(20, 5), sharex=True)
+    for i, metric in enumerate(metrics):
+        sns.lineplot(data=class_metrics_df[class_metrics_df["typical"]=="True"], x='noise', y=metric, hue='class', ax=axes[i], marker='o', legend = "full")
+        axes[i].legend().remove()  # Remove the subplot legends
+        axes[i].set_title(metric)
+        axes[i].set_xlabel('Noise')
+        axes[i].set_ylabel(metric)
+    plt.tight_layout()
+    plt.suptitle('Class-level Metrics vs Noise', y = 1.02)
+    
+     # Now get handles and labels
+    handles, labels = axes[0].get_legend_handles_labels()
+
+    # Create a shared legend
+    fig.legend(handles=handles, labels=labels, loc='upper center', ncol=2, bbox_to_anchor=(0.5, -0.0), frameon=False)
+
+    # Adjust the space to accommodate the shared legend
+    plt.subplots_adjust(top=0.85, bottom=0.15)
+    plt.show()
+
+def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type = "class_independent",  T = None, epsilon = 0.10, misspecify = False):
+    
+    typical_count = 0
+    preds_all = []
+    
+    y_vec = yn
+    
+    for seed in (range(1, max_iter+1)):
+        
+        u_vec = infer_u(y_vec, group = group, noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
+        
+        typical_flag, _ = is_typical(u_vec, p_y_x_dict, group = group,  T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
+
+        if misspecify:
+            typical_flag = True
+            
+        if not typical_flag:
+            continue
+            
+        flipped_labels = flip_labels(y_vec, u_vec)
+        
+        model, loss = bayes_model(d, X, yn, loss_type="0-1")
+        
+        preds = output_01(model, X)
+        
+        preds_all.append(preds)
+
+        typical_count += 1
+
+        if typical_count == m:
+            break
+            
+    predictions = np.array(preds_all)
+    disagreement = estimate_disagreement(predictions)
+    ambiguity = calculate_error_rate(predictions, yn)
+
+
+    return disagreement, ambiguity
+
+def abstain_toy(d, m, max_iter, X, y, noise_type, T, loss_type="0-1", n_draws=10, epsilon=0.1):
+    """
+    Generate a dictionary of ambiguity rates across a range of noise levels.
+    
+    :param noise_levels: A list or array of noise levels to test.
+    :param X: The input features for the dataset.
+    :param y: The true labels for the dataset.
+    :param true_labels: The true labels dictionary for generating the dataset.
+    :param instances_counts: The instances counts for generating the dataset.
+    :return: A dictionary with keys as instances and values as lists of ambiguity rates.
+    """
+    
+    group = np.repeat(0, len(y))
+    
+    p_y_x_dict = calculate_prior(y, group, noise_type=noise_type)  # Clean prior
+
+    typical_count = 0
+    preds_vec = []
+    
+    
+    results = {
+                "seed": [],
+              "disagreement": [],
+              "ambiguity": [],
+                "preds": [],
+              "yn": [],
+              "y": [],
+                "X":[]}
+    
+
+    for seed in tqdm(range(1, n_draws*10+1)):
+        u_vec = get_u(y, T=T, seed=seed, noise_type=noise_type)
+        
+        typical_flag, difference = is_typical(u_vec, p_y_x_dict,  T = T, y_vec = y, noise_type = noise_type, uncertainty_type = "forward", epsilon = epsilon)
+        
+        if typical_flag:    
+            typical_count+=1
+            
+        else:
+            continue
+        
+        yn = flip_labels(y, u_vec)
+        
+        #TRAIN MODEL ON NOISY DATASET
+        best_model_noisy, loss = bayes_model(d, X, yn, loss_type="0-1")
+        preds = output_01(best_model_noisy, X)
+    
+        
+        #COMPUTE REGRET METRICS
+        error_noisy, err_anticipated = instance_01loss(yn, preds)
+        error_clean, err_true = instance_01loss(y, preds)
+
+        fp_vec = ((err_anticipated == 1) & (err_true == 0))
+        fn_vec = ((err_anticipated == 0) & (err_true == 1))
+        
+        _, regret_vec = instance_01loss(err_anticipated, err_true)
+        
+        #RUN OUR PROCEDURE
+        disagreement, ambiguity = run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = group, noise_type = noise_type,  T = T, epsilon = epsilon)
+        
+        results["seed"].append(seed) 
+        results["disagreement"].append(disagreement)
+        results["ambiguity"].append(ambiguity)
+        results["preds"].append(preds)
+        results["yn"].append(yn)
+        results["y"].append(y)
+        results["X"].append(X)
+        
+        if typical_count == n_draws:
+            break
+        
+    metrics_df = pd.DataFrame(results)
+    return metrics_df
+
+
+
+def compute_abstain_metrics_toy(abstain_percentage, preds, criteria, y_vec, yn_vec):
+    n = len(preds)
+    
+    abstain_count = int(abstain_percentage * n)
+                           
+    abstain = abstain_order(criteria, abstain_count)
+
+    non_abstain = (1 - abstain).astype(bool)  # abstention vector
+
+    coverage = np.sum(non_abstain)/n
+
+    err_true = abs(preds - y_vec)  # full err_true
+    
+    subset_err_true = err_true[non_abstain]
+    
+    clean_risk = (np.mean(err_true * non_abstain)) / coverage if coverage > 0 else 0.0
+    
+    err_anticipated = abs(preds - yn_vec)  # full err_anticipated
+    subset_err_anticipated = err_anticipated[non_abstain]
+
+    regret = (1/n)*np.sum(abs(subset_err_anticipated - subset_err_true))/ coverage if coverage > 0 else 0.0
+
+    # Calculate False Positives (FP) and False Negatives (FN)
+    fp = ((subset_err_anticipated == 1) & (subset_err_true == 0))
+    fn = ((subset_err_anticipated == 0) & (subset_err_true == 1))
+
+    tp = ((subset_err_anticipated == 1) & (subset_err_true == 1))
+    tn = ((subset_err_anticipated == 0) & (subset_err_true == 0))
+
+    fpr = (1/n) * (np.sum(fp)) / coverage if coverage > 0 else 0.0
+    fnr = (1/n) * (np.sum(fn)) / coverage if coverage > 0 else 0.0
+
+    tpr = (1/n) * (np.sum(tp)) / coverage if coverage > 0 else 0.0
+    tnr = (1/n) * (np.sum(tn)) / coverage if coverage > 0 else 0.0
+
+    return {
+        'fpr': 100*fpr,
+        'fnr': 100*fnr,
+        'tpr': 100*tpr,
+        'tnr': 100*tnr,
+        'regret': 100*regret,
+        'non_regret': 100*(1-regret),
+        'coverage': 100*coverage,
+        'clean_risk': 100*clean_risk
+    }, non_abstain
+
+
+def calculate_metrics_abstain_toy(df, noise_type="class_conditional", fixed_class=0, fixed_noise=0.0):
+    splits = []
+    metrics = []
+    values = []
+    coverages = []
+    thresholds = []
+    draw_ids = []
+    methods = []
+    Xs = []
+    ys = []
+    yns = []
+
+
+    
+    for draw_id in df.seed.unique():
+        
+
+        sub_df = df[(df["seed"] == draw_id)]
+
+        metric_lis = ['clean_risk','regret','non_regret' ,'fpr', 'fnr', 'tpr', 'tnr'] 
+
+
+        ambiguity = np.clip(sub_df.ambiguity.values[0] / 100, 0, 1)
+        disagreement = np.clip(sub_df.disagreement.values[0] / 100, 0, 1)
+        preds = sub_df.preds.values[0]
+        
+        y = sub_df.y.values[0]
+        yn = sub_df.yn.values[0]
+        X = sub_df.X.values[0]
+        
+        u = abs(y-yn)
+
+        d = len(X[0])
+        
+        
+        for method in ["ambiguity", "random", "1-ambiguity"]:
+            if method == "ambiguity":
+                criteria = ambiguity
+            elif method == "disagreement":
+                criteria = disagreement
+            elif method == "1-ambiguity":
+                criteria = 1-ambiguity
+            else: #
+                criteria = np.random.uniform(0, 1, len(X))
+
+            for abstain_percentage in np.linspace(0, 0.99, 100):
+
+                abstain_metrics, non_abstain = compute_abstain_metrics_toy(abstain_percentage, preds, criteria, y_vec = y, yn_vec = yn)
+
+                for metric in metric_lis:
+
+                    metrics.append(metric)
+
+                    values.append(abstain_metrics[metric])
+                    coverages.append(abstain_metrics['coverage'])
+
+                    thresholds.append(abstain_percentage)
+
+                    draw_ids.append(draw_id)
+                    methods.append(method)
+
+                metrics.append("X_counts")
+                values.append(complete_binary_dict(d, get_value_counts(X[non_abstain])))
+                coverages.append(abstain_metrics['coverage'])
+                thresholds.append(abstain_percentage)
+                draw_ids.append(draw_id)
+                methods.append(method)
+
+                metrics.append("y_counts")
+                values.append(get_value_counts(y[non_abstain]))
+                coverages.append(abstain_metrics['coverage'])
+                thresholds.append(abstain_percentage)
+                draw_ids.append(draw_id)
+                methods.append(method)
+
+                metrics.append("u_counts")
+                values.append(get_value_counts(u[non_abstain]))
+                coverages.append(abstain_metrics['coverage'])
+                thresholds.append(abstain_percentage)
+                draw_ids.append(draw_id)
+                methods.append(method)
+            
+            
+    # Create a DataFrame from the arrays
+    data = pd.DataFrame({
+        #'train': splits,
+        'metric': metrics,
+        'value': values,
+        'coverage': coverages,
+        'threshold': thresholds,
+        'draw_id': draw_ids,
+        'method': methods
+    })
+    return data
+
+
+def plot_abstain_toy(data, noise_level):
+    data["abstention"] = 100 - data["coverage"]
+
+    # Set the font style to sans-serif
+    plt.rcParams["font.family"] = "sans-serif"
+
+    metrics = ["regret", "fpr", "fnr", "clean_risk"]
+    count_metrics = ["X_counts", "y_counts", "u_counts"]
+    
+    # Define your custom color palette for each method
+    method_colors = {
+        "ambiguity": "#8896FB",   # Purple
+        "disagreement": "#808080",  # Gray
+         "1-ambiguity": "#00ff00",  # Green
+        "random": "black"
+    }
+
+    # Plot total level metrics
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 5))
+
+    sub_data = data
+
+    for i, metric in enumerate(metrics):
+        method_data = sub_data[sub_data['metric'] == metric]
+        #color = "#8896FB"
+        sns.lineplot(data=method_data, x="abstention", y="value", hue = "method", ax=axes[i], linewidth=1, palette = method_colors)
+#         axes[i].scatter(method_data["abstention"].values, method_data["value"].values, c = method_data["method"].values, s=5, alpha=0.5)
+
+        axes[i].set_xlabel("Abstention Rate", fontsize=14)
+        axes[i].set_ylabel(metric, fontsize=14)
+        axes[i].set_title(f"{metric} (Noise Level: {noise_level})")
+        axes[i].grid(True, which='both', color='grey', linestyle='-', linewidth=0.5)
+        axes[i].tick_params(axis='both', which='major', labelsize=12)
+        axes[i].tick_params(axis='both', which='minor', labelsize=12)
+
+    
+    
+    # Removing the style from the legend
+    handles, labels = plt.gca().get_legend_handles_labels()
+   
+    plt.legend(handles, labels, title='', loc='upper left', bbox_to_anchor=(1, 1))
+    
+    plt.tight_layout(rect=[0, 0.1, 1, 1])
+    plt.show()
+
+    metrics = ['non_regret', 'tpr', 'tnr',  "clean_risk"]
+    count_metrics = ["X_counts", "y_counts", "u_counts"]
+    
+    # Define your custom color palette for each method
+    method_colors = {
+        "ambiguity": "#8896FB",   # Purple
+        "disagreement": "#808080",  # Gray
+         "1-ambiguity": "#00ff00",  # Green
+        "random": "black"
+    }
+
+    # Plot total level metrics
+    fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 5))
+
+    sub_data = data
+
+    for i, metric in enumerate(metrics):
+        method_data = sub_data[sub_data['metric'] == metric]
+        #color = "#8896FB"
+        sns.lineplot(data=method_data, x="abstention", y="value", hue = "method", ax=axes[i], linewidth=1, palette = method_colors)
+#         axes[i].scatter(method_data["abstention"].values, method_data["value"].values, c = method_data["method"].values, s=5, alpha=0.5)
+
+        axes[i].set_xlabel("Abstention Rate", fontsize=14)
+        axes[i].set_ylabel(metric, fontsize=14)
+        axes[i].set_title(f"{metric} (Noise Level: {noise_level})")
+        axes[i].grid(True, which='both', color='grey', linestyle='-', linewidth=0.5)
+        axes[i].tick_params(axis='both', which='major', labelsize=12)
+        axes[i].tick_params(axis='both', which='minor', labelsize=12)
+
+    
+    
+    # Removing the style from the legend
+    handles, labels = plt.gca().get_legend_handles_labels()
+   
+    plt.legend(handles, labels, title='', loc='upper left', bbox_to_anchor=(1, 1))
+    
+    plt.tight_layout(rect=[0, 0.1, 1, 1])
+    plt.show()
+
+    # Plot the distribution of X_counts, y_counts, yn_counts vs abstention rate using catplot
+    for count_metric in count_metrics:
+        distribution_data = []
+
+        metric_data = data[data['metric'] == count_metric]
+        for index, row in metric_data.iterrows():
+            abstention = row['abstention']
+            counts = row['value']  # assuming the counts are stored in the 'value' column
+            draw_id = row['draw_id']
+            method = row['method']
+            for key, value in counts.items():
+                distribution_data.append({'abstention': abstention, 'instance': key, 'count': value, 'count_type': count_metric, 'draw_id':draw_id, 'method':method})
+
+        distribution_df = pd.DataFrame(distribution_data)
+        
+        # Create instances_counts dictionary based on abstention == 0.0
+        instances_counts = distribution_df[(distribution_df['abstention'] == 0.0)& (distribution_df['draw_id'] == distribution_df['draw_id'].min())].groupby('instance')['count'].sum().to_dict()
+        
+        distribution_df['normalized_count'] = distribution_df.apply(lambda row: row['count'] / instances_counts[row['instance']]*len(distribution_df.method.unique()), axis=1)
+        
+        fig, ax = plt.subplots(figsize=(7, 5))
+        
+        g = sns.lineplot(
+            data=distribution_df, x="abstention", y="normalized_count", hue="instance", style ="method", palette="pastel", ax=ax)
+        ax.set_title(f"{count_metric} vs Abstention Rate")
+        ax.set_xlabel("Abstention Rate")
+        ax.set_ylabel("Normalized Count")
+        ax.legend(title='Instance')
+        
+            # Removing the style from the legend
+        handles, labels = plt.gca().get_legend_handles_labels()
+
+        
+        plt.legend(handles[1:], labels[1:], title="", loc='upper left', bbox_to_anchor=(1, 1))
+    plt.show()

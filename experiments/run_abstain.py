@@ -28,7 +28,7 @@ import pickle as pkl
 
 parser = argparse.ArgumentParser('abstain')
 
-parser.add_argument('--n_models', type =int, default=100, help="number of models to train")
+parser.add_argument('--n_models', type =int, default=2000, help="number of models to train")
 parser.add_argument('--noise_type', type=str, default="class_independent", help="specify type of label noise")
 parser.add_argument('--max_iter', type =int, default=10000, help="max iterations to check for typical vec")
 parser.add_argument('--model_type', type =str, default="LR", help="LR or NN")
@@ -75,9 +75,12 @@ if __name__ == '__main__':
 
     batch_size = 512
 
-    if dataset == "lungcancer":
-        n_models = 100
+    if dataset == "cshock_eicu":
+        batch_size = 512
+    elif dataset == "lungcancer":
         batch_size = 2048
+    else:
+        batch_size = 1024
 
 
     if noise_type == "class_independent":
@@ -92,7 +95,7 @@ if __name__ == '__main__':
         probs_test = []
         draw_ids = []
 
-        for noise_level in [0.01, 0.05, 0.2,  0.4]:
+        for noise_level in [0.05, 0.2,  0.4]:
             
             _, T_true = generate_class_independent_noise(y_train, noise_level) #Fixed noise draw
         
@@ -183,7 +186,7 @@ if __name__ == '__main__':
 
         for fixed_class in classes:
             for i, fixed_noise in enumerate(noises):
-                for noise_level in [0.01, 0.05, 0.2,  0.4]:
+                for noise_level in [0.05, 0.2,  0.4]:
 
                     _, T_true = generate_class_conditional_noise(y_train, noise_level, fixed_class, fixed_noise)
 

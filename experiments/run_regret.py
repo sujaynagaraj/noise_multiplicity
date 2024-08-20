@@ -30,7 +30,7 @@ import timeit
 parser = argparse.ArgumentParser('regret')  
 
 parser.add_argument('--n_models', type =int, default=100, help="number of models to train")
-parser.add_argument('--n_draws', type =int, default=5, help="number of noise draws")
+parser.add_argument('--n_draws', type =int, default=100, help="number of noise draws")
 parser.add_argument('--noise_type', type=str, default="class_independent", help="specify type of label noise")
 parser.add_argument('--noise_level', type =float, default=0.2, help="noise level")
 parser.add_argument('--max_iter', type =int, default=10000, help="max iterations to check for typical vec")

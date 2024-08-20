@@ -2,7 +2,7 @@
 
 declare -a noise_types=("class_independent" "class_conditional" "group")
 declare -a model_types=("LR" "NN" "SVM")
-declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer")
+declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer" "lungcancer_imbalanced" "saps_imbalanced" "support_imbalanced" "cshock_eicu_imbalanced" "cshock_mimic_imbalanced")
 
 # Define misspecification parameters for class_independent and class_conditional
 declare -a misspecify_params_class_independent=("correct" "over" "under")
@@ -12,7 +12,7 @@ for i in {0..1}
 do
     for j in {0..1}
     do
-        for k in {1..1}
+        for k in {0..9}
         do
             noise_type=${noise_types[$i]}
             model_type=${model_types[$j]}
@@ -27,10 +27,11 @@ do
                 misspecify_params=("")  # No misspecification parameters for other noise types
             fi
 
-            for misspecify_param in "${misspecify_params[@]}"
-            do
-                sbatch launch_abstain.sh $noise_type $model_type $dataset $misspecify_param
-            done
+            #for misspecify_param in "${misspecify_params[@]}"
+            #do
+                #sbatch launch_abstain.sh $noise_type $model_type $dataset $misspecify_param
+            sbatch launch_abstain.sh $noise_type $model_type $dataset "correct"
+            #done
         done
     done
 done

@@ -112,7 +112,6 @@ def dice(array1, array2):
     dice = (2 * intersection) / (len(set1) + len(set2))
     return dice
 
-
 def indices_above_threshold(data, threshold):
     """
     Return the indices of elements in a list or numpy array that are above a given threshold.
@@ -167,14 +166,13 @@ def regret_FPR_FNR(err_true, err_anticipated):
     false_positives = np.where((err_anticipated == 1) & (err_true == 0))[0]
     false_negatives = np.where((err_anticipated == 0) & (err_true == 1))[0]
 
-    # Calculate the number of true negatives and true positives
-    true_negatives = np.sum(1 - err_true)
-    true_positives = np.sum(err_true)
-
     # Calculate the rates with checks for division by zero
-    fp_rate = len(false_positives) / true_negatives if true_negatives > 0 else 0
-    fn_rate = len(false_negatives) / true_positives if true_positives > 0 else 0
+    #fp_rate = len(false_positives) / (len(false_positives) + len(false_negatives)) if (len(false_positives) + len(false_negatives))  > 0 else 0.0
+    #fn_rate = len(false_negatives) / (len(false_positives) + len(false_negatives))  if (len(false_positives) + len(false_negatives))  > 0 else 0.0
 
+    fp_rate = len(false_positives) / len(err_true)
+    fn_rate = len(false_negatives) / len(err_true)
+    
     return fp_rate, false_positives, fn_rate, false_negatives
 
 

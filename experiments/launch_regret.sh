@@ -1,12 +1,11 @@
 #!/usr/bin/env bash
 #SBATCH -p rtx6000
 #SBATCH --gres=gpu:1
-#SBATCH --mem=12G
+#SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH -a 0
-#SBATCH --account=deadline
-#SBATCH --qos=deadline
-#SBATCH --time=20:00:00
+#SBATCH --qos=m3
+#SBATCH --time=4:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --output=/h/snagaraj/noise_multiplicity/logs/regret/slurm-%A.out
 #SBATCH --error=/h/snagaraj/noise_multiplicity/logs/regret/slurm-%A.out

@@ -194,7 +194,7 @@ def simulate_noise_and_train_model(m, max_iter, X_train, y_train, X_test, y_test
     return metrics
 
 def abstain(rates, threshold):
-    rates = np.clip(rates, 0, 100)
+    #rates = np.clip(rates, 0, 100)
     return ((rates > threshold)).astype(int)
 
 def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25, misspecify = False):
@@ -403,26 +403,25 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "instance_err_true_train", instance_err_true_train)
         vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
 
-        (preds_train, 
-        preds_test,
-        disagreement_train,
-        disagreement_test,
-        ambiguity_train,
-        ambiguity_test) = run_procedure_regret(
-                        n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict,
-                        noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
+        # if draw_id < 5:
+        #     (preds_train, 
+        #     preds_test,
+        #     disagreement_train,
+        #     disagreement_test,
+        #     ambiguity_train,
+        #     ambiguity_test) = run_procedure_regret(
+        #                     n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict,
+        #                     noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
 
-        disagreement_train = disagreement_train / 100
-        ambiguity_train = ambiguity_train / 100
-        disagreement_test = disagreement_test / 100
-        ambiguity_test = ambiguity_test / 100
+        
+        #     disagreement_train = disagreement_train / 100
+        #     ambiguity_train = ambiguity_train / 100
+        #     disagreement_test = disagreement_test / 100
+        #     ambiguity_test = ambiguity_test / 100
 
-        vectors.add_vector("metadata", draw_id, "disagreement_train", disagreement_train)
-        vectors.add_vector("metadata", draw_id, "ambiguity_train", ambiguity_train)
-        vectors.add_vector("metadata", draw_id, "disagreement_test", disagreement_test)
-        vectors.add_vector("metadata", draw_id, "ambiguity_test", ambiguity_test)
-        #instance_err_anticipated_train = (disagreement_train>0).astype(int)
-            
-            #vectors.add_vector(err_method, draw_id, "instance_err_anticipated_train", instance_err_anticipated_train)
+        #     vectors.add_vector("metadata", draw_id, "disagreement_train", disagreement_train)
+        #     vectors.add_vector("metadata", draw_id, "ambiguity_train", ambiguity_train)
+        #     vectors.add_vector("metadata", draw_id, "disagreement_test", disagreement_test)
+        #     vectors.add_vector("metadata", draw_id, "ambiguity_test", ambiguity_test)
 
     return vectors

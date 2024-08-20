@@ -588,3 +588,31 @@ def plot_metric(metrics_df, metric, highlight = "instance" , highlight_vec = Non
 
 # Note: Ensure the 'metrics' object and the 'metric' variable are properly defined before calling this function.
 
+def create_boxplot(df, metric_names, ncols=3):
+    nrows = (len(metric_names) + ncols - 1) // ncols
+    fig, axs = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows), sharey=False)
+    #fig.suptitle(f'Boxplots for Training Loss: {training_loss}', fontsize=16)
+    axs = axs.flatten()  # Flatten the 2D array of axes for easier indexing
+
+    for i, metric_name in enumerate(metric_names):
+        sns.boxplot(ax=axs[i], x='noise_level', y='value', hue='training_loss', data=df[df['metric_name'] == metric_name], dodge=True)
+        sns.stripplot(ax=axs[i], x='noise_level', y='value', hue='training_loss', data=df[df['metric_name'] == metric_name], 
+                      dodge=True, marker='o', s = 3,alpha=1, palette='viridis')
+        
+    
+        #axs[i].set_ylim(0, 1.0)
+            
+        axs[i].set_title(f'{metric_name}')
+        
+        # Remove the duplicate legends from the stripplot
+        if i == 0:
+            handles, labels = axs[i].get_legend_handles_labels()
+            fig.legend(handles, labels, title='Training Loss', bbox_to_anchor=(1.05, 0.5), loc='center')
+        axs[i].legend_.remove()
+
+    # Remove any empty subplots
+    for j in range(i + 1, len(axs)):
+        fig.delaxes(axs[j])
+
+    plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to make room for the title and legend
+    plt.show()

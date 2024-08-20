@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 declare -a noise_types=("class_independent" "class_conditional")
 declare -a model_types=("LR" "NN")
-declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer")
-declare -a noise_levels=(0.0 0.05 0.01 0.1 0.2 0.4)
+declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer" "lungcancer_imbalanced" "saps_imbalanced" "support_imbalanced" "cshock_eicu_imbalanced" "cshock_mimic_imbalanced")
+
+declare -a noise_levels=(0.0 0.01 0.05 0.1 0.2 0.4)
 
 # Define misspecification parameters for class_independent and class_conditional
 declare -a misspecify_params_class_independent=("over" "under")
@@ -12,7 +13,7 @@ for i in {0..1}
 do
     for j in {0..1}
     do
-        for k in {0..4}
+        for k in {0..9}
         do
             for h in {0..5}
             do
@@ -30,10 +31,10 @@ do
                     misspecify_params=("")  # No misspecification parameters for other noise types
                 fi
 
-                for misspecify_param in "${misspecify_params[@]}"
-                do
-                    sbatch launch_regret.sh $noise_type $model_type $dataset $noise_level $misspecify_param
-                done
+                #for misspecify_param in "${misspecify_params[@]}"
+                #do
+                sbatch launch_regret.sh $noise_type $model_type $dataset $noise_level 
+                #done
             done
         done
     done

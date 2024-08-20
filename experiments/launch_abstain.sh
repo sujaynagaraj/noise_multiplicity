@@ -4,9 +4,8 @@
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH -a 0
-#SBATCH --account=deadline
-#SBATCH --qos=deadline
-#SBATCH --time=16:00:00
+#SBATCH --qos=m
+#SBATCH --time=12:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --output=/h/snagaraj/noise_multiplicity/logs/abstain/slurm-%A_%a.out
 #SBATCH --error=/h/snagaraj/noise_multiplicity/logs/abstain/slurm-%A_%a.out
@@ -15,5 +14,5 @@
 
 source /pkgs/anaconda3/bin/activate noisyTS
 
-python3 -u run_abstain.py  --noise_type $1 --model_type $2 --dataset $3 --misspecify $4
+python3 -u run_abstain.py  --noise_type $1 --model_type $2 --dataset $3
 
