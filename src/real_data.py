@@ -197,11 +197,14 @@ def abstain(rates, threshold):
     #rates = np.clip(rates, 0, 100)
     return ((rates > threshold)).astype(int)
 
+
 def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25, misspecify = False):
     
     typical_count = 0
     preds_test = []
     preds_train = []
+    errors_train = []
+    errors_test = []
     
     y_vec = yn_train
     
@@ -210,8 +213,9 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
         u_vec = infer_u(y_vec, group = group_train, noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
         
         typical_flag, _ = is_typical(u_vec, p_y_x_dict, group = group_train,  T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
-
-        if misspecify:
+        
+        
+        if misspecify or noise_type == "group":
             typical_flag = True
             
         if not typical_flag:
@@ -232,6 +236,12 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
         preds_test.append(test_preds)
         preds_train.append(train_preds)
 
+        error_train = train_preds != flipped_labels
+        error_test = test_preds != y_test
+
+        errors_test.append(error_test)
+        errors_train.append(error_train)
+
         typical_count += 1
 
         if typical_count == m:
@@ -240,14 +250,15 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
     predictions_test = np.array(preds_test)
     disagreement_test = estimate_disagreement(predictions_test)
     ambiguity_test = calculate_error_rate(predictions_test, y_test)
+    new_ambiguity_test = np.mean(errors_test, axis=0)*100
 
     predictions_train = np.array(preds_train)
     disagreement_train = estimate_disagreement(predictions_train)
     ambiguity_train = calculate_error_rate(predictions_train, y_vec)
+    new_ambiguity_train = np.mean(errors_train, axis=0)*100
 
-
-    return disagreement_train, disagreement_test, ambiguity_train, ambiguity_test
-
+    return disagreement_train, disagreement_test, ambiguity_train,  ambiguity_test, new_ambiguity_train, new_ambiguity_test
+    
 def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
     # Set random seed for reproducibility
 
@@ -274,8 +285,6 @@ def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
     
  
     return model, train_preds, test_preds
-
-
 
 
 
@@ -384,6 +393,27 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         # True Population Error
         pop_err_true_train, instance_err_true_train = instance_01loss(y_train, train_preds)
         pop_err_true_test, instance_err_true_test = instance_01loss(y_test, test_preds)
+
+
+        (disagreement_train, 
+        disagreement_test, 
+        ambiguity_train, 
+        ambiguity_test, 
+        new_ambiguity_train, 
+        new_ambiguity_test) = run_procedure(n_models, 
+                                            max_iter, 
+                                            X_train, 
+                                            yn_train, 
+                                            X_test, 
+                                            y_test, 
+                                            p_y_x_dict, 
+                                            group_train = None, 
+                                            group_test = None, 
+                                            noise_type = noise_type, 
+                                            model_type = model_type, 
+                                            T = T, 
+                                            epsilon = 0.1, 
+                                            misspecify = "correct")
         
         vectors.add_vector("metadata", draw_id, "dataset", dataset)
         vectors.add_vector("metadata", draw_id, "noise_type", noise_type)
@@ -402,26 +432,7 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "yn_train", yn_train)
         vectors.add_vector("metadata", draw_id, "instance_err_true_train", instance_err_true_train)
         vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
-
-        # if draw_id < 5:
-        #     (preds_train, 
-        #     preds_test,
-        #     disagreement_train,
-        #     disagreement_test,
-        #     ambiguity_train,
-        #     ambiguity_test) = run_procedure_regret(
-        #                     n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict,
-        #                     noise_type=noise_type, model_type=model_type, T=T, epsilon=0.1)
-
-        
-        #     disagreement_train = disagreement_train / 100
-        #     ambiguity_train = ambiguity_train / 100
-        #     disagreement_test = disagreement_test / 100
-        #     ambiguity_test = ambiguity_test / 100
-
-        #     vectors.add_vector("metadata", draw_id, "disagreement_train", disagreement_train)
-        #     vectors.add_vector("metadata", draw_id, "ambiguity_train", ambiguity_train)
-        #     vectors.add_vector("metadata", draw_id, "disagreement_test", disagreement_test)
-        #     vectors.add_vector("metadata", draw_id, "ambiguity_test", ambiguity_test)
+        vectors.add_vector("metadata", draw_id, "train_ambiguity", new_ambiguity_train)
+        vectors.add_vector("metadata", draw_id, "test_ambiguity", new_ambiguity_test)
 
     return vectors

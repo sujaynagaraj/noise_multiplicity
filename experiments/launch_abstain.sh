@@ -4,8 +4,9 @@
 #SBATCH --mem=8G
 #SBATCH --cpus-per-task=1
 #SBATCH -a 0
-#SBATCH --qos=m
-#SBATCH --time=12:00:00
+#SBATCH --account=deadline
+#SBATCH --qos=deadline
+#SBATCH --time=18:00:00
 #SBATCH --mail-type=FAIL
 #SBATCH --output=/h/snagaraj/noise_multiplicity/logs/abstain/slurm-%A_%a.out
 #SBATCH --error=/h/snagaraj/noise_multiplicity/logs/abstain/slurm-%A_%a.out
