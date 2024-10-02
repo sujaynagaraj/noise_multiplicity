@@ -112,10 +112,14 @@ def infer_u(yn, seed, p_y_x_dict, group = None, noise_type = "class_independent"
         
     else:
         posterior = calculate_posterior(yn, T, p_y_x_dict[0])
+
     # Generate random samples from a Bernoulli distribution for the entire vector
     sampled_u = bernoulli.rvs(p=posterior)
     
     return sampled_u
+
+    
+
 
 def calculate_posterior(yn, T, p_y_x):
      # Create arrays of opposite class indices
@@ -174,7 +178,9 @@ def calculate_prior(y, group, noise_type = "class_independent"):
         p_y_x_dict[g] = p_y_x
     
     return p_y_x_dict
-        
+  
+
+
 def is_typical(u_vec, p_y_x_dict, group = None,  T = None, y_vec = None, epsilon=0.25, noise_type = "class_independent", uncertainty_type = "backward"):
     """
     Checks if the observed flips (u_vec) are typical given the noise model (T) and, optionally,
@@ -212,35 +218,43 @@ def is_typical(u_vec, p_y_x_dict, group = None,  T = None, y_vec = None, epsilon
                 
                 p_y_x = p_y_x_dict[g]
                 
-                
-                
                 # Create a boolean mask where all conditions are true
                 mask = (u_vec == 1) & (y_vec == y) & (group == g)#(U=u,Y=y)
 
                 # Count the number of True values in the mask
                 count = np.sum(mask)
-
-                freq = count/len(u_vec)
+                total_instances = np.sum((y_vec == y) & (group == g))
+                
+                freq = count/total_instances if total_instances !=0 else 0
 
                 opp_class = 1-y
 
-                p_u_opp = T[g][opp_class, y]
+                 # Compute P(Y_tilde = y | G = g)
+                p_y_tilde = (
+                    T[g][y, 0] * p_y_x[0] +
+                    T[g][y, 1] * p_y_x[1]
+                )
 
-                p_u = T[g][y,opp_class]
+                # Compute numerator for P(Y = y | Y_tilde = y, G=g)
+                numerator = T[g][y, y] * p_y_x[y]
 
-                # Sum the resulting vector to get P(y_tilde = observed_y_tilde | x = x)
-                
-                if uncertainty_type == "forward":
-                    true_freq = p_u*p_y_x[y]*p_g
-                else:
-                    p_yn = (1-p_u)*p_y_x[y] + p_u_opp*p_y_x[opp_class]
-                    true_freq = calculate_posterior(y, T[g], p_y_x)*p_yn*p_g
+                # Compute true_freq = P(U=1 | Y_tilde = y, G=g)
+                true_freq = 1 - numerator / p_y_tilde
+
+                deviation = abs(freq - true_freq)
+
+
+                # Check if the deviation exceeds the tolerance
+                if deviation > epsilon * true_freq:
                     
-                if (abs(freq - true_freq) > epsilon*true_freq): #atypical
                     bool_flag = False
-                    break
-                    
-            return bool_flag, abs(freq - true_freq)
+                    break  # Exit inner loop over y
+                #print("Here")
+            if not bool_flag:
+                break  # Exit outer loop over groups
+
+
+        return bool_flag, deviation
         
     else:
         bool_flag = True
@@ -271,11 +285,11 @@ def is_typical(u_vec, p_y_x_dict, group = None,  T = None, y_vec = None, epsilon
                 true_freq = p_u*p_y_x[y]
             else:
                 true_freq = calculate_posterior(y, T, p_y_x)*p_yn
-
+            
+            
             if (abs(freq - true_freq) > epsilon*true_freq): #atypical
                 bool_flag = False, abs(freq - true_freq)
                 break
                 
 
         return bool_flag, abs(freq - true_freq)
-    

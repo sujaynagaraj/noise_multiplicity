@@ -81,6 +81,7 @@ def load_metrics(model_type, noise_type, uncertainty_type, metric, group = "age"
     return pd.DataFrame(rows)
 
 
+
 def load_dataset(dataset, include_groups = True):
     
     #dataset = "cshock_eicu"
@@ -185,6 +186,34 @@ def load_dataset(dataset, include_groups = True):
         else:
             # Features including all except group and label
             features = pd.get_dummies(df.drop(['Malignant', 'Age', 'Gender'], axis=1)).values
+            
+            
+    elif dataset == "enhancer":
+        # Labels
+        labels = df['Significant'].values
+
+        # Encode 'sex' using LabelEncoder
+        label_encoder = LabelEncoder()
+
+
+        df['chr'] = label_encoder.fit_transform(df['chr'])
+
+        # Groups
+        groups = {
+            'chr': df["chr"].values
+
+        }
+
+        feature_cols = list(df.columns[-12:])
+
+        
+
+        if include_groups:
+            df_features = df[feature_cols + "chr"]
+            
+        else:
+            df_features = df[feature_cols]
+        features = pd.get_dummies(df_features).values.astype(int)
 
 
     # Create a StandardScaler object
@@ -192,6 +221,8 @@ def load_dataset(dataset, include_groups = True):
 
     # Fit and transform the data
     features = scaler.fit_transform(features)
+    
+    
             
     return features, labels, groups
 
@@ -267,11 +298,57 @@ def load_dataset_splits(dataset, group=""):
 
     filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_processed.pkl")
     with open(filepath, 'rb') as file:
+
         # Use pickle to write the dictionary to the file
         [X_train, X_test, y_train, y_test, group_train, group_test] = pkl.load(file)
 
+    return X_train, X_test, y_train, y_test, group_train, group_test
+
+def enhancer_train_test_split(features, labels, groups, test_size=0.2, random_state=None):
+    """
+    Custom train-test split function that splits data at the group level.
+
+    Args:
+        features (numpy.ndarray or pandas.DataFrame): Feature matrix.
+        labels (numpy.ndarray or pandas.Series): Labels vector.
+        groups (numpy.ndarray or pandas.Series): Group vector (e.g., chromosomes).
+        test_size (float): Proportion of the dataset to include in the test split.
+        random_state (int, optional): Random seed for reproducibility.
+
+    Returns:
+        X_train, X_test, y_train, y_test, group_train, group_test
+    """
+    if random_state is not None:
+        np.random.seed(random_state)
+
+    # Initialize lists to hold train and test indices
+    train_indices = []
+    test_indices = []
+
+    # Unique groups (e.g., unique chromosomes)
+    unique_groups = np.unique(groups)
+
+    for group in unique_groups:
+        # Get indices for the current group
+        group_indices = np.where(groups == group)[0]
+        
+        # Shuffle the indices
+        np.random.shuffle(group_indices)
+        
+        # Determine split point
+        split_point = int(len(group_indices) * (1 - test_size))
+        
+        # Assign indices to train and test
+        train_indices.extend(group_indices[:split_point])
+        test_indices.extend(group_indices[split_point:])
+
+    # Split the data
+    X_train, X_test = features[train_indices], features[test_indices]
+    y_train, y_test = labels[train_indices], labels[test_indices]
+    group_train, group_test = groups[train_indices], groups[test_indices]
 
     return X_train, X_test, y_train, y_test, group_train, group_test
+
 
 
 if __name__ == "__main__":
@@ -291,8 +368,16 @@ if __name__ == "__main__":
         
         for group in groups_dict.keys():
             #features, labels, groups = balance_data(X, y, saps = False, groups = groups_dict[group])
-            feauturs, labels, groups = X, y, groups_dict[group]
-            X_train, X_test, y_train, y_test, group_train, group_test = train_test_split(features, 
+            features, labels, groups = X, y, groups_dict[group]
+            if dataset == "enhancer":
+                X_train, X_test, y_train, y_test, group_train, group_test = enhancer_train_test_split(features, 
+                                                                labels, 
+                                                                groups,
+                                                                test_size=0.2, 
+                                                                random_state=2024)
+            else:
+                
+                X_train, X_test, y_train, y_test, group_train, group_test = train_test_split(features, 
                                                                 labels, 
                                                                 groups,
                                                                 test_size=0.2, 
