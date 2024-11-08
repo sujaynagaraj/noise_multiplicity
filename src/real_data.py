@@ -203,8 +203,9 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
     typical_count = 0
     preds_test = []
     preds_train = []
-    errors_train = []
+    errors_clean_train = []
     errors_test = []
+    unanticipated_mistakes = []
     
     y_vec = yn_train
     
@@ -231,16 +232,19 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
                 test_loss,
                 train_preds,
                 test_preds
-                ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
+                ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
         
         preds_test.append(test_preds)
         preds_train.append(train_preds)
 
-        error_train = train_preds != flipped_labels
+        error_clean_train = train_preds != flipped_labels
         error_test = test_preds != y_test
-
+       
+        unanticipated_mistake = calculate_unanticipated(train_preds, flipped_labels, y_vec)
+        
         errors_test.append(error_test)
-        errors_train.append(error_train)
+        errors_clean_train.append(error_clean_train)
+        unanticipated_mistakes.append(unanticipated_mistake)
 
         typical_count += 1
 
@@ -248,16 +252,18 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
             break
             
     predictions_test = np.array(preds_test)
-    disagreement_test = estimate_disagreement(predictions_test)
-    ambiguity_test = calculate_error_rate(predictions_test, y_test)
+    #disagreement_test = estimate_disagreement(predictions_test)
+    #ambiguity_test = calculate_error_rate(predictions_test, y_test)
     new_ambiguity_test = np.mean(errors_test, axis=0)*100
 
     predictions_train = np.array(preds_train)
-    disagreement_train = estimate_disagreement(predictions_train)
-    ambiguity_train = calculate_error_rate(predictions_train, y_vec)
-    new_ambiguity_train = np.mean(errors_train, axis=0)*100
+    #disagreement_train = estimate_disagreement(predictions_train)
+    #ambiguity_train = calculate_error_rate(predictions_train, y_vec)
+    new_ambiguity_train = np.mean(errors_clean_train, axis=0)*100
 
-    return disagreement_train, disagreement_test, ambiguity_train,  ambiguity_test, new_ambiguity_train, new_ambiguity_test
+    unanticipated_mistake_val = np.mean(unanticipated_mistakes, axis=0)*100
+
+    return new_ambiguity_train, new_ambiguity_test, unanticipated_mistake_val
     
 def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
     # Set random seed for reproducibility
@@ -314,7 +320,7 @@ def run_procedure_regret(m, max_iter, X_train, yn_train, X_test, y_test,  p_y_x_
                 train_loss,
                 test_loss,
                 train_preds,
-                test_preds)= train_model_ours_regret(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type="LR")
+                test_preds)= train_model_ours_regret(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
         
         preds_train.append(train_preds)
         preds_test.append(test_preds)
@@ -395,12 +401,9 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         pop_err_true_test, instance_err_true_test = instance_01loss(y_test, test_preds)
 
 
-        (disagreement_train, 
-        disagreement_test, 
-        ambiguity_train, 
-        ambiguity_test, 
-        new_ambiguity_train, 
-        new_ambiguity_test) = run_procedure(n_models, 
+        (new_ambiguity_train, 
+        new_ambiguity_test,
+        unanticipated_mistake_val) = run_procedure(n_models, 
                                             max_iter, 
                                             X_train, 
                                             yn_train, 
@@ -434,5 +437,6 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
         vectors.add_vector("metadata", draw_id, "train_ambiguity", new_ambiguity_train)
         vectors.add_vector("metadata", draw_id, "test_ambiguity", new_ambiguity_test)
+        vectors.add_vector("metadata", draw_id, "train_unanticipated", unanticipated_val)
 
     return vectors

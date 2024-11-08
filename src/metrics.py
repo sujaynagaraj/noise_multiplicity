@@ -1,5 +1,17 @@
 import numpy as np
 
+def calculate_unanticipated(preds, flipped_labels, yn):
+    error_clean = (preds != flipped_labels)
+    correct_noisy = (preds == yn)
+
+    error_noisy = preds != yn
+    correct_clean = preds == flipped_labels
+
+    unanticipated_mistake = ((error_clean) & (correct_noisy))+ ((correct_clean) & (error_noisy))
+
+    return unanticipated_mistake
+
+
 def calculate_robustness_rate(predicted_probabilities, epsilon=0.01):
     # Calculate the variance of the predicted probabilities across models for each sample
     variance = np.var(predicted_probabilities, axis=0)
