@@ -126,7 +126,7 @@ def compute_abstain_metrics(abstain_percentage, preds, criteria, y_vec, train = 
     coverage = np.sum(non_abstain)/n
 
     err_true = abs(preds - y_vec)  # full err_true
-    
+    #print(err_true.shape, non_abstain.shape)
     subset_err_true = err_true[non_abstain]
     
     clean_risk = (np.mean(err_true * non_abstain)) / coverage if coverage > 0 else 0.0
@@ -195,16 +195,18 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                     metric_lis = ['clean_risk','regret', 'fpr', 'fnr'] if train else ['clean_risk']
                     
                     if train:
-                        ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
+                        #ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
                         new = np.clip(sub_df.new_ambiguity_train.values[0] / 100, 0, 1)
+                        unanticipated = np.clip(sub_df.unanticipated_mistake.values[0] / 100, 0, 1)
                         probs = sub_df.train_probs.values[0]
                     
                         u_vec = get_u(y_train, T=T, seed=draw_id, noise_type=noise_type)
                         y_vec = y_train
                         yn_train = flip_labels(y_train, u_vec)  # XOR
                     else:
-                        ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
+                        #ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
                         new = np.clip(sub_df.new_ambiguity_test.values[0] / 100, 0, 1)
+                        unanticipated = np.zeros(len(new))
                         probs = sub_df.test_probs.values[0]
                         
                         y_vec = y_test
@@ -218,9 +220,9 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                         
                     uncertainty = 1 - confidence
 
-                    for method in ["ambiguity", "new" , "confidence"]:
-                        if method == "ambiguity":
-                            criteria = ambiguity
+                    for method in ["unanticipated", "new" , "confidence"]:
+                        if method == "unanticipated":
+                            criteria = unanticipated
                         elif method == "confidence":
                             criteria = uncertainty
                         elif method == "new":
@@ -301,7 +303,7 @@ def calculate_metrics_abstain_subgroup(dataset, model_type="LR", noise_type="cla
                     metric_lis = ['clean_risk','regret', 'fpr', 'fnr'] if train else ['clean_risk']
                     
                     if train:
-                        ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
+                        #ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
                         new = np.clip(sub_df.new_ambiguity_train.values[0] / 100, 0, 1)
                         probs = sub_df.train_probs.values[0]
                     
@@ -309,7 +311,7 @@ def calculate_metrics_abstain_subgroup(dataset, model_type="LR", noise_type="cla
                         y_vec = y_train
                         yn_train = flip_labels(y_train, u_vec)  # XOR
                     else:
-                        ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
+                        #ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
                         probs = sub_df.test_probs.values[0]
                         
                         y_vec = y_test
@@ -401,7 +403,7 @@ def plot_metrics(data, loss_type="BCE", noise_level=0.2, group = False):
     # Define your custom color palette for each method
     method_colors = {
         "new": "#ce3d26",
-        "ambiguity": "#8896FB",   # Purple
+        "unanticipated": "#8896FB",   # Purple
         "confidence": "#808080"  # Gray
     }
     
@@ -444,7 +446,7 @@ def plot_metrics(data, loss_type="BCE", noise_level=0.2, group = False):
     
     fig, axes = plt.subplots(1, len(metrics), figsize=(5 * len(metrics), 5))  # Create a new figure with multiple columns
 
-    sub_data = data[(data["method"] == "ambiguity") & (data["noise"] == noise_level)]
+    sub_data = data[(data["method"] == "new") & (data["noise"] == noise_level)]
 
     for metric, ax in zip(metrics, axes):
         for loss_type in sub_data['loss'].unique():
@@ -499,7 +501,7 @@ def plot_metrics(data, loss_type="BCE", noise_level=0.2, group = False):
     
     # Define your custom color palette for each method
     method_colors = {
-        "ambiguity": "#8896FB",   # Purple
+        "new": "#8896FB",   # Purple
         "confidence": "#808080"  # Gray
     }
     

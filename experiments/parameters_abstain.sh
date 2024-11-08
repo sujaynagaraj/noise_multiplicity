@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-declare -a noise_types=("class_independent" "class_conditional" "group")
+declare -a noise_types=("class_conditional" "class_independent" "group")
 declare -a model_types=("LR" "NN" "SVM")
 declare -a datasets=("cshock_eicu" "cshock_mimic" "support" "saps" "lungcancer" "lungcancer_imbalanced" "saps_imbalanced" "support_imbalanced" "cshock_eicu_imbalanced" "cshock_mimic_imbalanced")
 
