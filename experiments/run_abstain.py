@@ -28,7 +28,7 @@ import pickle as pkl
 
 parser = argparse.ArgumentParser('abstain')
 
-parser.add_argument('--n_models', type =int, default=200, help="number of models to train")
+parser.add_argument('--n_models', type =int, default=100, help="number of models to train")
 parser.add_argument('--noise_type', type=str, default="class_independent", help="specify type of label noise")
 parser.add_argument('--max_iter', type =int, default=10000, help="max iterations to check for typical vec")
 parser.add_argument('--model_type', type =str, default="LR", help="LR or NN")
@@ -86,15 +86,15 @@ if __name__ == '__main__':
     if noise_type == "class_independent":
         noise_levels = []
         losses = []
-        #dis_train = []
-        #amb_train = []
-        new_amb_train = []
-        unanticated_mistake_train= []
+
+        amb_train = []
+        unanticipated_train= []
+        unanticipated_retrain =[]
+        actual_train = []
         probs_train = []
 
-        #dis_test = []
-        #amb_test = []
-        new_amb_test = []
+
+        amb_test = []
         probs_test = []
         draw_ids = []
 
@@ -119,9 +119,9 @@ if __name__ == '__main__':
                 u_vec = get_u(y_train, T = T_true, seed= seed, noise_type = noise_type)
                 yn_train = flip_labels(y_train, u_vec) #XOR
 
-                (new_ambiguity_train, 
-                new_ambiguity_test,
-                unanticated_mistake_val) = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
+                (ambiguity_train, 
+                ambiguity_test,
+                unanticipated) = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = group_train, group_test = group_test, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
 
                 
                 model, (train_acc,
@@ -132,18 +132,20 @@ if __name__ == '__main__':
                                 test_loss,
                                 train_preds,
                                 test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
-
+                
+                actual_mistakes, unanticipated_mistakes = get_uncertainty(n_models, max_iter, train_preds, yn_train, p_y_x_dict,group_train = group_train, group_test = group_test, noise_type=noise_type, model_type=model_type, T=T_est, epsilon=epsilon, misspecify=misspecify_flag)
+    
                 noise_levels.append(noise_level)
                 losses.append("BCE")
-                #dis_train.append(disagreement_train)
-                #amb_train.append(ambiguity_train)
-                new_amb_train.append(new_ambiguity_train)
-                unanticated_mistake_train.append(unanticated_mistake_val)
+
+                amb_train.append(ambiguity_train)
+                unanticipated_train.append(unanticipated_mistakes)
+                unanticipated_retrain.append(unanticipated)
+                actual_train.append(actual_mistakes)
                 probs_train.append(train_probs)
 
-                #dis_test.append(disagreement_test)
-                #amb_test.append(ambiguity_test)
-                new_amb_test.append(new_ambiguity_test)
+
+                amb_test.append(ambiguity_test)
                 probs_test.append(test_probs)
                 draw_ids.append(seed)
 
@@ -156,19 +158,19 @@ if __name__ == '__main__':
 
                     noise_levels.append(noise_level)
                     losses.append(loss)
-                    #dis_train.append(disagreement_train)
-                    #amb_train.append(ambiguity_train)
-                    new_amb_train.append(new_ambiguity_train)
-                    unanticated_mistake_train.append(unanticated_mistake_val)
+
+                    amb_train.append(ambiguity_train)
+                    unanticipated_train.append(unanticipated_mistakes)
+                    unanticipated_retrain.append(unanticipated)
+                    actual_train.append(actual_mistakes)
                     probs_train.append(train_probs)
 
-                    #dis_test.append(disagreement_test)
-                    #amb_test.append(ambiguity_test)
-                    new_amb_test.append(new_ambiguity_test)
+
+                    amb_test.append(ambiguity_test)
                     probs_test.append(test_probs)
                     draw_ids.append(seed)
 
-        data = {'noise': noise_levels, 'loss': losses,"unanticipated_mistake":unanticated_mistake_train,   "new_ambiguity_train":new_amb_train, "new_ambiguity_test":new_amb_test,"test_probs":probs_test, "train_probs":probs_train, "draw_id":draw_ids }
+        data = {'noise': noise_levels, 'loss': losses, "actual_train": actual_train , "unanticipated_retrain": unanticipated_retrain , "unanticipated_train": unanticipated_train , "ambiguity_train":amb_train, "ambiguity_test":amb_test, "test_probs":probs_test, "train_probs":probs_train,  "draw_id":draw_ids}
 
         path = os.path.join(files_path, f"{epsilon}.pkl")
 
@@ -187,15 +189,14 @@ if __name__ == '__main__':
         fixed_classes = []
         fixed_noises = []
         losses = []
-        #dis_train = []
-        #amb_train = []
-        new_amb_train = []
+      
+        amb_train = []
+        actual_train = []
         unanticipated_train = []
+        unanticipated_retrain =[]
         probs_train = []
 
-        #dis_test = []
-        #amb_test = []
-        new_amb_test = []
+        amb_test = []
         probs_test = []
         draw_ids = []
 
@@ -208,6 +209,9 @@ if __name__ == '__main__':
 
                     if misspecify == "correct": #Estimate more noise than true T
                         T_est = T_true
+
+
+            
                         misspecify_flag = False
                     else : 
                         T_est = np.array([[T_true[1, 1], T_true[1, 0]], 
@@ -218,9 +222,9 @@ if __name__ == '__main__':
                         u_vec = get_u(y_train, T = T_true, seed= seed, noise_type = noise_type)
                         yn_train = flip_labels(y_train, u_vec) #XOR
                         
-                        (new_ambiguity_train, 
-                        new_ambiguity_test, 
-                        unanticated_mistake_val) = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
+                        (ambiguity_train, 
+                        ambiguity_test, 
+                        unanticipated) = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = group_train, group_test = group_test, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
 
                         model, (train_acc,
                                 test_acc,
@@ -231,19 +235,22 @@ if __name__ == '__main__':
                                 train_preds,
                                 test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
 
+                        actual_mistakes, unanticipated_mistakes = get_uncertainty(n_models, max_iter, train_preds, yn_train, p_y_x_dict,group_train = group_train, group_test = group_test, noise_type=noise_type, model_type=model_type, T=T_est, epsilon=epsilon, misspecify=misspecify_flag)
+    
                         noise_levels.append(noise_level)
                         fixed_classes.append(fixed_class)
                         fixed_noises.append(fixed_noise)
                         losses.append("BCE")
-                        #dis_train.append(disagreement_train)
-                        #amb_train.append(ambiguity_train)
-                        new_amb_train.append(new_ambiguity_train)
-                        unanticipated_train.append(unanticated_mistake_val)
+
+                        amb_train.append(ambiguity_train)
+                        
+                        unanticipated_train.append(unanticipated_mistakes)
+                        unanticipated_retrain.append(unanticipated)
+                        actual_train.append(actual_mistakes)
                         probs_train.append(train_probs)
 
-                        #dis_test.append(disagreement_test)
-                        #amb_test.append(ambiguity_test)
-                        new_amb_test.append(new_ambiguity_test)
+
+                        amb_test.append(ambiguity_test)
                         probs_test.append(test_probs)
                         draw_ids.append(seed)
 
@@ -258,19 +265,19 @@ if __name__ == '__main__':
                             fixed_classes.append(fixed_class)
                             fixed_noises.append(fixed_noise)
                             losses.append(loss)
-                            #dis_train.append(disagreement_train)
-                            #amb_train.append(ambiguity_train)
-                            new_amb_train.append(new_ambiguity_train)
-                            unanticipated_train.append(unanticated_mistake_val)
+
+                            amb_train.append(ambiguity_train)
+                            unanticipated_train.append(unanticipated_mistakes)
+                            unanticipated_retrain.append(unanticipated)
+                            actual_train.append(actual_mistakes)
                             probs_train.append(train_probs)
 
-                            #dis_test.append(disagreement_test)
-                            #amb_test.append(ambiguity_test)
-                            new_amb_test.append(new_ambiguity_test)
+
+                            amb_test.append(ambiguity_test)
                             probs_test.append(test_probs)
                             draw_ids.append(seed)
 
-        data = {'noise': noise_levels, 'loss': losses, "unanticipated_train": unanticated_mistake_val , "new_ambiguity_train":new_amb_train, "new_ambiguity_test":new_amb_test, "test_probs":probs_test, "train_probs":probs_train, "fixed_noise":fixed_noises, "fixed_class":fixed_classes, "draw_id":draw_ids}
+        data = {'noise': noise_levels, 'loss': losses, "actual_train": actual_train , "unanticipated_retrain": unanticipated_retrain,"unanticipated_train": unanticipated_train , "ambiguity_train":amb_train, "ambiguity_test":amb_test, "test_probs":probs_test, "train_probs":probs_train, "fixed_noise":fixed_noises, "fixed_class":fixed_classes, "draw_id":draw_ids}
 
         path = os.path.join(files_path, f"{epsilon}.pkl")
 
