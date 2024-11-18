@@ -242,6 +242,7 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
        
         unanticipated_mistake = calculate_unanticipated(train_preds, flipped_labels, y_vec)
         
+     
         errors_test.append(error_test)
         errors_clean_train.append(error_clean_train)
         unanticipated_mistakes.append(unanticipated_mistake)
@@ -262,7 +263,7 @@ def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, gr
     new_ambiguity_train = np.mean(errors_clean_train, axis=0)*100
 
     unanticipated_mistake_val = np.mean(unanticipated_mistakes, axis=0)*100
-
+    
     return new_ambiguity_train, new_ambiguity_test, unanticipated_mistake_val
     
 def train_model_abstain(X_train, y_train, X_test, y_test, model_type="LR"):
@@ -437,6 +438,6 @@ def run_experiment(dataset, noise_type, model_type, n_models, max_iter, T, train
         vectors.add_vector("metadata", draw_id, "instance_err_true_test", instance_err_true_test)
         vectors.add_vector("metadata", draw_id, "train_ambiguity", new_ambiguity_train)
         vectors.add_vector("metadata", draw_id, "test_ambiguity", new_ambiguity_test)
-        vectors.add_vector("metadata", draw_id, "train_unanticipated", unanticipated_val)
+        vectors.add_vector("metadata", draw_id, "train_unanticipated", unanticipated_mistake_val)
 
     return vectors

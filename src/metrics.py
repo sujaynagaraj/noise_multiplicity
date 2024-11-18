@@ -1,5 +1,53 @@
 import numpy as np
+from src.noise import *
 
+
+def get_uncertainty(m, max_iter, preds, yn_train, p_y_x_dict,group_train = None, group_test = None, noise_type="class_independent", model_type="LR", T=None, epsilon=0.25, misspecify=False):
+    
+    typical_count = 0
+    y_vec = yn_train
+    all_plausible_labels = []
+    
+    for seed in (range(1, max_iter+1)):
+        u_vec = infer_u(y_vec, group=group_train, noise_type=noise_type, p_y_x_dict=p_y_x_dict, T=T, seed=seed)
+        typical_flag, _ = is_typical(u_vec, p_y_x_dict, group=group_train, T=T, y_vec=y_vec, noise_type=noise_type, uncertainty_type="backward", epsilon=epsilon)
+        
+        if misspecify or noise_type == "group":
+            typical_flag = True
+            
+        if not typical_flag:
+            continue
+            
+        flipped_labels = flip_labels(y_vec, u_vec)
+        all_plausible_labels.append(flipped_labels)
+
+        typical_count += 1
+
+        if typical_count == m:
+            break
+    
+    all_plausible_labels = np.array(all_plausible_labels)  # Shape: (k, n)
+    
+    # Calculate Actual Mistake as a vector of mean values for each instance
+    actual_mistakes = np.mean(preds != all_plausible_labels, axis=0)  # Shape: (n,)
+    
+
+    # Calculate Unanticipated Mistake as a vector of mean values for each instance
+    # Expand preds and yn_train to match dimensions for comparison
+    preds_expanded = np.expand_dims(preds, axis=0)  # Shape: (1, n)
+    yn_train_expanded = np.expand_dims(yn_train, axis=0)  # Shape: (1, n)
+
+    # Case 1: pred == yn_train but pred != all_plausible_labels
+    case_1 = (preds_expanded == yn_train_expanded) & (preds_expanded != all_plausible_labels)
+    
+    # Case 2: pred != yn_train but pred == all_plausible_labels
+    case_2 = (preds_expanded != yn_train_expanded) & (preds_expanded == all_plausible_labels)
+    
+    # Calculate mean unanticipated mistakes for each instance
+    unanticipated_mistakes = np.mean(case_1 | case_2, axis=0)  # Shape: (n,)
+
+    return actual_mistakes, unanticipated_mistakes  
+    
 def calculate_unanticipated(preds, flipped_labels, yn):
     error_clean = (preds != flipped_labels)
     correct_noisy = (preds == yn)

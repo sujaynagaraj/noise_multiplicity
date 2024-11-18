@@ -196,8 +196,9 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                     
                     if train:
                         #ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
-                        new = np.clip(sub_df.new_ambiguity_train.values[0] / 100, 0, 1)
-                        unanticipated = np.clip(sub_df.unanticipated_mistake.values[0] / 100, 0, 1)
+                        ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
+                        actual = np.clip(sub_df.actual_train.values[0] / 100, 0, 1)
+                        unanticipated = np.clip(sub_df.unanticipated_train.values[0] / 100, 0, 1)
                         probs = sub_df.train_probs.values[0]
                     
                         u_vec = get_u(y_train, T=T, seed=draw_id, noise_type=noise_type)
@@ -205,8 +206,9 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                         yn_train = flip_labels(y_train, u_vec)  # XOR
                     else:
                         #ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
-                        new = np.clip(sub_df.new_ambiguity_test.values[0] / 100, 0, 1)
-                        unanticipated = np.zeros(len(new))
+                        ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
+                        actual = np.zeros(len(ambiguity))
+                        unanticipated = np.zeros(len(ambiguity))
                         probs = sub_df.test_probs.values[0]
                         
                         y_vec = y_test
@@ -220,13 +222,15 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                         
                     uncertainty = 1 - confidence
 
-                    for method in ["unanticipated", "new" , "confidence"]:
+                    for method in ["actual","unanticipated", "ambiguity", "confidence"]:
                         if method == "unanticipated":
                             criteria = unanticipated
                         elif method == "confidence":
                             criteria = uncertainty
-                        elif method == "new":
-                            criteria = new
+                        elif method == "ambiguity":
+                            criteria = ambiguity
+                        elif method == "actual":
+                            criteria = actual
                         
                         for abstain_percentage in np.linspace(0, 0.99, 100):
                             
@@ -304,7 +308,7 @@ def calculate_metrics_abstain_subgroup(dataset, model_type="LR", noise_type="cla
                     
                     if train:
                         #ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
-                        new = np.clip(sub_df.new_ambiguity_train.values[0] / 100, 0, 1)
+                        new = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
                         probs = sub_df.train_probs.values[0]
                     
                         u_vec = get_u(y_train, T=T, seed=draw_id, noise_type=noise_type)
