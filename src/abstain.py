@@ -159,7 +159,7 @@ def compute_abstain_metrics(abstain_percentage, preds, criteria, y_vec, train = 
         }
     
 
-def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_conditional", misspecify="correct", fixed_class=0, fixed_noise=0.0):
+def metrics_abstain(dataset, model_type="LR", noise_type="class_conditional", misspecify="correct", fixed_class=0, fixed_noise=0.0):
     splits = []
     metrics = []
     values = []
@@ -195,7 +195,7 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                     metric_lis = ['clean_risk','regret', 'fpr', 'fnr'] if train else ['clean_risk']
                     
                     if train:
-                        #ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
+                       
                         ambiguity = np.clip(sub_df.ambiguity_train.values[0] / 100, 0, 1)
                         actual = np.clip(sub_df.actual_train.values[0] / 100, 0, 1)
                         unanticipated = np.clip(sub_df.unanticipated_train.values[0] / 100, 0, 1)
@@ -205,7 +205,7 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
                         y_vec = y_train
                         yn_train = flip_labels(y_train, u_vec)  # XOR
                     else:
-                        #ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
+                      
                         ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
                         actual = np.zeros(len(ambiguity))
                         unanticipated = np.zeros(len(ambiguity))
@@ -269,7 +269,7 @@ def calculate_metrics_abstain(dataset, model_type="LR", noise_type="class_condit
     return data
 
 
-def calculate_metrics_abstain_subgroup(dataset, model_type="LR", noise_type="class_conditional", misspecify="correct", fixed_class=0, fixed_noise=0.0):
+def metrics_abstain_subgroup(dataset, model_type="LR", noise_type="class_conditional", misspecify="correct", fixed_class=0, fixed_noise=0.0):
     splits = []
     metrics = []
     values = []
