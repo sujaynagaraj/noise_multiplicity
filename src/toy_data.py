@@ -773,7 +773,7 @@ def regret_toy(d, X, y, noise_type, T, loss_type="0-1", n_draws=10, epsilon=0.1)
         "fnr/overreliance": []
     }
     
-    for seed in tqdm(range(1, max_iter+1)):
+    for seed in tqdm(range(1, n_draws)):
         u_vec = get_u(y, T=T, seed=seed, noise_type=noise_type)
         
         typical_flag, difference = is_typical(u_vec, p_y_x_dict,  T = T, y_vec = y, noise_type = noise_type, uncertainty_type = "forward", epsilon = epsilon)
@@ -939,6 +939,7 @@ def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type
     
     typical_count = 0
     preds_all = []
+    errors = []
     
     y_vec = yn
     
@@ -961,16 +962,16 @@ def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type
         preds = output_01(model, X)
         
         preds_all.append(preds)
-
+        error = preds != flipped_labels
+        errors.append(error)
         typical_count += 1
 
         if typical_count == m:
             break
-            
+    
+    ambiguity = np.mean(errors, axis=0)*100
     predictions = np.array(preds_all)
     disagreement = estimate_disagreement(predictions)
-    ambiguity = calculate_error_rate(predictions, yn)
-
 
     return disagreement, ambiguity
 
@@ -1110,7 +1111,6 @@ def calculate_metrics_abstain_toy(df, noise_type="class_conditional", fixed_clas
     yns = []
 
 
-    
     for draw_id in df.seed.unique():
         
 
@@ -1132,7 +1132,7 @@ def calculate_metrics_abstain_toy(df, noise_type="class_conditional", fixed_clas
         d = len(X[0])
         
         
-        for method in ["ambiguity", "random", "1-ambiguity"]:
+        for method in ["ambiguity", "random"]:
             if method == "ambiguity":
                 criteria = ambiguity
             elif method == "disagreement":
