@@ -56,7 +56,6 @@ DEFAULT_NN_PARAMS = {
 
 def train_model_ours(X_train, y_train, X_test, y_test, seed, model_type="LR"):
     # Set random seed for reproducibility
-
     np.random.seed(seed)
     
     # Choose the model based on the input
@@ -92,7 +91,6 @@ def train_model_ours(X_train, y_train, X_test, y_test, seed, model_type="LR"):
     train_loss = log_loss(y_train, train_probs)
     test_loss = log_loss(y_test, test_probs)
         
-
     results = (train_acc,
                 test_acc,
                 train_probs,

@@ -63,10 +63,11 @@ def generate_dataset(true_labels, instances_counts, probabilistic = False, weigh
     :return: Shuffled features and probabilistic labels.
     """
     features, labels = [], []
-    for X, label in true_labels.items():
-        n_instances = instances_counts[X]
+    for (x1,x2,label) in true_labels:
+
+        n_instances = instances_counts[(x1,x2,label)]
         #features.extend([(1, x1, x2)] * n_instances)  # Add a 1 for the bias term in logistic regression
-        features.extend([X] * n_instances) 
+        features.extend([(x1,x2)] * n_instances) 
         if not probabilistic:
             labels.extend([label] * n_instances)
 
@@ -257,16 +258,20 @@ def backward_zero_one_loss(y_true, y_pred, noise_transition_matrix=None, instanc
     return corrected_loss
 
 
-def bayes_model(d, X, y, loss_type = "0-1", noise_transition_matrix = None, noise_transition_dict=None):
+def bayes_model(d, X, y, linear_only = True, loss_type = "0-1", noise_transition_matrix = None, noise_transition_dict=None):
     
+    if linear_only:
+        file_path = "/h/snagaraj/noise_multiplicity/src/linear_classifier_coefficients/coefs_complete_sym_d_0"+str(d)+".csv"
+
+    else:
     # Example file path, replace with actual path pattern
-    file_path = "/h/snagaraj/noise_multiplicity/src/linear_classifier_coefficients/coefs_complete_sym_d_0"+str(d)+".csv"
+        file_path = "/h/snagaraj/noise_multiplicity/src/linear_classifier_coefficients/coefs_complete_sym_d_0"+str(d)+".csv"
 
     # Load the coefficients from the CSV file
     # The file path will need to be adjusted to the actual path where your file is stored
     coefficients = (load_coefficients(file_path))
 
-    random.shuffle(coefficients) ##Shuffling in case of ties, we have different orders we check
+    #random.shuffle(coefficients) ##Shuffling in case of ties, we have different orders we check
     
     best_loss = 100
     
@@ -935,6 +940,7 @@ def plot_regret_toy(metrics_df, instance_metrics_df, class_metrics_df):
     plt.subplots_adjust(top=0.85, bottom=0.15)
     plt.show()
 
+
 def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type = "class_independent",  T = None, epsilon = 0.10, misspecify = False):
     
     typical_count = 0
@@ -943,6 +949,9 @@ def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type
     
     y_vec = yn
     
+    
+    
+
     for seed in (range(1, max_iter+1)):
         
         u_vec = infer_u(y_vec, group = group, noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
@@ -956,24 +965,33 @@ def run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = None,noise_type
             continue
             
         flipped_labels = flip_labels(y_vec, u_vec)
+
         
-        model, loss = bayes_model(d, X, yn, loss_type="0-1")
+        model, loss = bayes_model(d, X, flipped_labels, loss_type="0-1")
+
         
         preds = output_01(model, X)
+
         
         preds_all.append(preds)
-        error = preds != flipped_labels
+
+
+        error = [preds[i]!= flipped_labels[i] for i in range(len(preds))]
+        
         errors.append(error)
         typical_count += 1
 
         if typical_count == m:
             break
-    
+    errors = np.array(errors)
+
     ambiguity = np.mean(errors, axis=0)*100
     predictions = np.array(preds_all)
-    disagreement = estimate_disagreement(predictions)
+    #disagreement = estimate_disagreement(predictions)
 
-    return disagreement, ambiguity
+    return ambiguity
+
+
 
 def abstain_toy(d, m, max_iter, X, y, noise_type, T, loss_type="0-1", n_draws=10, epsilon=0.1):
     """
@@ -997,17 +1015,18 @@ def abstain_toy(d, m, max_iter, X, y, noise_type, T, loss_type="0-1", n_draws=10
     
     results = {
                 "seed": [],
-              "disagreement": [],
+                "susceptible": [],
+                "posterior": [],
               "ambiguity": [],
                 "preds": [],
-              "yn": [],
-              "y": [],
+                  "yn": [],
+                  "y": [],
                 "X":[]}
     
 
     for seed in tqdm(range(1, n_draws*10+1)):
         u_vec = get_u(y, T=T, seed=seed, noise_type=noise_type)
-        
+
         typical_flag, difference = is_typical(u_vec, p_y_x_dict,  T = T, y_vec = y, noise_type = noise_type, uncertainty_type = "forward", epsilon = epsilon)
         
         if typical_flag:    
@@ -1017,6 +1036,10 @@ def abstain_toy(d, m, max_iter, X, y, noise_type, T, loss_type="0-1", n_draws=10
             continue
         
         yn = flip_labels(y, u_vec)
+        
+        posterior = calculate_posterior(yn, T, p_y_x_dict[0])
+        results["posterior"].append(posterior)
+        susceptible = np.sum(posterior > 0)/len(X)
         
         #TRAIN MODEL ON NOISY DATASET
         best_model_noisy, loss = bayes_model(d, X, yn, loss_type="0-1")
@@ -1033,21 +1056,24 @@ def abstain_toy(d, m, max_iter, X, y, noise_type, T, loss_type="0-1", n_draws=10
         _, regret_vec = instance_01loss(err_anticipated, err_true)
         
         #RUN OUR PROCEDURE
-        disagreement, ambiguity = run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = group, noise_type = noise_type,  T = T, epsilon = epsilon)
+        ambiguity = run_procedure_toy(d, m, max_iter, X, yn, p_y_x_dict, group = group, noise_type = noise_type,  T = T, epsilon = epsilon)
         
         results["seed"].append(seed) 
-        results["disagreement"].append(disagreement)
+        results["susceptible"].append(susceptible)
+        #results["disagreement"].append(disagreement)
         results["ambiguity"].append(ambiguity)
         results["preds"].append(preds)
         results["yn"].append(yn)
         results["y"].append(y)
-        results["X"].append(X)
+        results["X"].append(X)  
         
         if typical_count == n_draws:
             break
         
     metrics_df = pd.DataFrame(results)
     return metrics_df
+
+
 
 
 
@@ -1111,6 +1137,7 @@ def calculate_metrics_abstain_toy(df, noise_type="class_conditional", fixed_clas
     yns = []
 
 
+
     for draw_id in df.seed.unique():
         
 
@@ -1120,7 +1147,7 @@ def calculate_metrics_abstain_toy(df, noise_type="class_conditional", fixed_clas
 
 
         ambiguity = np.clip(sub_df.ambiguity.values[0] / 100, 0, 1)
-        disagreement = np.clip(sub_df.disagreement.values[0] / 100, 0, 1)
+        #disagreement = np.clip(sub_df.disagreement.values[0] / 100, 0, 1)
         preds = sub_df.preds.values[0]
         
         y = sub_df.y.values[0]

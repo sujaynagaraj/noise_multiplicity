@@ -1,12 +1,13 @@
 import sys
 sys.path.insert(0,'..')
 
+from src.generate_data import *
+
 from src.models import *
 from src.loss_functions import *
 from src.noise import *
 from src.metrics import *
 from src.plotting import *
-from src.generate_data import *
 from src.toy_data import *
 
 import sklearn
@@ -18,76 +19,168 @@ from scipy.stats import bernoulli
 from operator import xor
 
 
-def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.25, misspecify = False):
+def load_dataset_splits(dataset, group=""):
+
+    parent_dir = os.path.abspath(os.path.join(os.getcwd(), os.pardir))  
+
+
+    filepath = os.path.join(parent_dir, "data", dataset , f"{dataset}_{group}_processed.pkl")
+    with open(filepath, 'rb') as file:
+
+        # Use pickle to write the dictionary to the file
+        [X_train, X_test, y_train, y_test, group_train, group_test] = pkl.load(file)
+
+    return X_train, X_test, y_train, y_test, group_train, group_test
+
+
+def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, 
+                  group_train=None, group_test=None, noise_type="class_independent", 
+                  model_type="LR", T=None, epsilon=0.1, misspecify=False):
+    """
+    Runs the procedure for training and evaluating models under noisy labels.
+
+    Args:
+        m (int): Number of models to train.
+        max_iter (int): Maximum number of iterations.
+        X_train (numpy.ndarray): Training feature matrix.
+        yn_train (numpy.ndarray): Noisy training labels.
+        X_test (numpy.ndarray): Test feature matrix.
+        y_test (numpy.ndarray): Test labels.
+        p_y_x_dict (dict): Dictionary mapping class probabilities for noise modeling.
+        group_train (numpy.ndarray, optional): Training group labels (default: None).
+        group_test (numpy.ndarray, optional): Test group labels (default: None).
+        noise_type (str, optional): Type of noise ("class_independent" or "group").
+        model_type (str, optional): Type of model ("LR" for logistic regression, etc.).
+        T (numpy.ndarray, optional): Noise transition matrix.
+        epsilon (float, optional): Epsilon value for typicality checking.
+        misspecify (bool, optional): Whether to force a misspecified noise model.
+
+    Returns:
+        tuple: Arrays containing plausible labels, training predictions, test predictions, 
+               training probabilities, and test probabilities.
+    """
     
-    typical_count = 0
-    preds_test = []
-    preds_train = []
-    errors_clean_train = []
-    errors_test = []
-    unanticipated_mistakes = []
-    
+    preds_test, preds_train = [], []
+    probs_test, probs_train = [], []
+    plausible_labels = []
+
     y_vec = yn_train
-    
-    for seed in tqdm(range(1, max_iter+1)):
+
+    for seed in tqdm(range(1, min(m, max_iter) + 1)):  # Ensure we don't exceed both `m` and `max_iter`
         
-        u_vec = infer_u(y_vec, group = group_train, noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
+        # Infer noisy label distribution
+        u_vec = infer_u(y_vec, group=group_train, noise_type=noise_type, 
+                        p_y_x_dict=p_y_x_dict, T=T, seed=seed)
+
+        # Check if noise follows a typical pattern
+        if not misspecify and noise_type != "group":
+            typical_flag, _ = is_typical(u_vec, p_y_x_dict, group=group_train,  
+                                         T=T, y_vec=y_vec, noise_type=noise_type, 
+                                         uncertainty_type="backward", epsilon=epsilon)
+        else:
+            typical_flag = True  # Default to True when misspecified or using "group" noise
         
-        typical_flag, _ = is_typical(u_vec, p_y_x_dict, group = group_train,  T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
-        
-        
-        if misspecify or noise_type == "group":
-            typical_flag = True
-            
-        if not typical_flag:
-            continue
-            
+        # Flip labels based on noise model
         flipped_labels = flip_labels(y_vec, u_vec)
+
+        # Train model with noisy labels
+        model, metrics = train_model_ours(X_train, flipped_labels, X_test, y_test, 
+                                          seed=2024, model_type=model_type)
         
-        model,  (train_acc,
-                test_acc,
-                train_probs,
-                test_probs,
-                train_loss,
-                test_loss,
-                train_preds,
-                test_preds
-                ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
-        
+        # Unpack metrics
+        train_acc, test_acc, train_probs, test_probs, train_loss, test_loss, train_preds, test_preds = metrics
+
+        # Store results
         preds_test.append(test_preds)
         preds_train.append(train_preds)
+        probs_test.append(test_probs)
+        probs_train.append(train_probs)
+        plausible_labels.append(flipped_labels)
 
-        error_clean_train = train_preds != flipped_labels
-        error_test = test_preds != y_test
-       
-        unanticipated_mistake = calculate_unanticipated(train_preds, flipped_labels, y_vec)
-        
-     
-        errors_test.append(error_test)
-        errors_clean_train.append(error_clean_train)
-        unanticipated_mistakes.append(unanticipated_mistake)
-
-        typical_count += 1
-
-        if typical_count == m:
+        # Break when `m` models are trained
+        if len(preds_train) >= m:
             break
-            
-    predictions_test = np.array(preds_test)
-    ambiguity_test = np.mean(errors_test, axis=0)*100
 
-    predictions_train = np.array(preds_train)
-    ambiguity_train = np.mean(errors_clean_train, axis=0)*100
+    return (
+        np.array(plausible_labels), 
+        np.array(preds_train), 
+        np.array(preds_test), 
+        np.array(probs_train), 
+        np.array(probs_test)
+    )
 
-    unanticipated_mistake_val = np.mean(unanticipated_mistakes, axis=0)*100
+# def run_procedure(m, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = None, group_test = None, noise_type = "class_independent", model_type = "LR", T = None, epsilon = 0.1, misspecify = False):
     
-    return ambiguity_train, ambiguity_test, unanticipated_mistake_val
-  
+#     typical_count = 0
+#     preds_test = []
+#     preds_train = []
+#     errors_clean_train = []
+#     errors_test = []
+#     plausible_test_probs = []
+    
+#     y_vec = yn_train
+    
+#     for seed in tqdm(range(1, max_iter+1)):
+        
+#         u_vec = infer_u(y_vec, group = group_train, noise_type = noise_type, p_y_x_dict = p_y_x_dict,  T = T , seed=seed)
+        
+        
+#         if misspecify or noise_type == "group":
+#             typical_flag = True
+            
+#         else:
+#             typical_flag, _ = is_typical(u_vec, p_y_x_dict, group = group_train,  T = T, y_vec = y_vec, noise_type = noise_type, uncertainty_type = "backward", epsilon = epsilon)
+        
+            
+#         flipped_labels = flip_labels(y_vec, u_vec)
+        
+#         model,  (train_acc,
+#                 test_acc,
+#                 train_probs,
+#                 test_probs,
+#                 train_loss,
+#                 test_loss,
+#                 train_preds,
+#                 test_preds
+#                 ) = train_model_ours(X_train, flipped_labels, X_test, y_test, seed = 2024, model_type=model_type)
+        
 
+#         preds_test.append(test_preds)
+#         preds_train.append(train_preds)
+
+#         error_clean_train = train_preds != flipped_labels
+#         error_test = test_preds != y_test
+       
+#         #unanticipated_mistake = calculate_unanticipated(train_preds, flipped_labels, y_vec)
+        
+#         errors_test.append(error_test)
+#         errors_clean_train.append(error_clean_train)
+#         #unanticipated_mistakes.append(unanticipated_mistake)
+
+#         plausible_test_probs.append(test_probs)
+
+#         typical_count += 1
+
+#         if typical_count == m:
+#             break
+            
+#     predictions_test = np.array(preds_test)
+#     ambiguity_test = np.mean(errors_test, axis=0)*100
+
+#     predictions_train = np.array(preds_train)
+#     ambiguity_train = np.mean(errors_clean_train, axis=0)*100
+
+#     plausible_prob = np.mean(plausible_test_probs, axis = 0)*100
+#     #print(np.array(plausible_test_probs).shape)
+#     disagreement_test = estimate_disagreement(np.array(plausible_test_probs))
+    
+#     return ambiguity_train, ambiguity_test, plausible_prob, disagreement_test
+  
 class Metrics:
     def __init__(self):
         self.metrics = {}
 
-    def add_metric(self, method, draw_id, metric_name, value):
+    def add_metric(self,method, draw_id, metric_name, value):
         if method not in self.metrics:
             self.metrics[method] = {}
         if draw_id not in self.metrics[method]:

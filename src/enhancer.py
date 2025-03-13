@@ -27,13 +27,23 @@ def load_enhancer(include_groups = True):
     data_path = os.path.join(parent_dir, "data", dataset, dataset+"_data.csv")
     
     df = pd.read_csv(data_path)
+    
+    df = df[df["pValueAdjusted"]<0.5]
+
+    # Create a mask for rows where pValueAdjusted > 0.5
+    #mask = df["pValueAdjusted"] > 0.5
+
+    # Flip the noisy labels (True ↔ False) only for those rows
+    #df.loc[mask, 'Significant'] = ~df.loc[mask, 'Significant']
 
     # Labels
     labels = df['Regulated'].values
     
-    noisy_labels = df['Regulated'].values
+    noisy_labels = df['Significant'].values
     
     power = df['PowerAtEffectSize25'].values
+    p_value = df['pValueAdjusted'].values
+    effect = np.abs(df['EffectSize'].values)
 
     # Encode 'sex' using LabelEncoder
     label_encoder = LabelEncoder()
@@ -42,7 +52,7 @@ def load_enhancer(include_groups = True):
 
     # Groups
     groups =  df["chr"].values
-
+    #groups = df.index.values
 
     feature_cols = list(df.columns[-12:])
 
@@ -62,20 +72,20 @@ def load_enhancer(include_groups = True):
     features = scaler.fit_transform(features)
     
             
-    return features, labels.astype(int), power,  groups
+    return features, labels.astype(int), noisy_labels.astype(int), power,  p_value, effect, groups
 
 
 
 
-def generate_T_dict(power, groups, noise_level):
+def generate_T_dict(power, p_value, groups, noise_level=0.1):
     # Initialize a dictionary to store transition matrices
     transition_matrices = defaultdict(list)
     
     # Combine power values and group assignments into a structured array
-    data = list(zip(power, groups))
+    data = list(zip(power, p_value, groups))
     
     # Convert to numpy array for easier handling (optional, but useful for larger data)
-    data = np.array(data, dtype=[('power', float), ('group', int)])
+    data = np.array(data,  dtype=[('power', float), ('p_value', float), ('group', int)])
     
     # Find unique groups
     unique_groups = np.unique(groups)
@@ -84,13 +94,19 @@ def generate_T_dict(power, groups, noise_level):
     for group in unique_groups:
         # Filter power values for the current group
         group_power_values = np.nan_to_num(data['power'][data['group'] == group], nan=1)
+        group_p_values = np.nan_to_num(data['p_value'][data['group'] == group], nan=1)
         
     
         # Calculate average power for the group
         avg_power = np.mean(group_power_values)
+        avg_p_value = np.mean(group_p_values)
+
+        noise_level = avg_p_value
         
         # Calculate T2 error as (1 - avg_power)
-        t2_error = 1 - avg_power
+        # t2_error = 1 - avg_power
+
+        t2_error = 0
         
         # Ensure t2_error is within [0, 1] range
         if not (0 <= t2_error <= 1):
@@ -111,48 +127,47 @@ def generate_T_dict(power, groups, noise_level):
 def generate_abstain_data_enhancer(n_models, max_iter, model_type = "LR", epsilon = 0.1, noise_level = 0.1):
     
     losses = []
-    dis_train = []
     amb_train = []
-    new_amb_train = []
+
     probs_train = []
 
-    dis_test = []
     amb_test = []
-    new_amb_test = []
+
     probs_test = []
     splits = []
     
-    features, noisy_labels, power, groups = load_enhancer()
+    features, labels, noisy_labels, power, p_value, effect, groups = load_enhancer()
     
     for split in [2024, 2025, 2026, 2027, 2028]:
-        X_train, X_test, yn_train, yn_test, group_train, group_test = enhancer_train_test_split(features, noisy_labels, groups, test_size=0.2, random_state=split)
+        X_train, X_test, y_train, y_test, yn_train, yn_test, effect_train, effect_test, group_train, group_test = enhancer_train_test_split(features, labels, noisy_labels, effect, test_size=0.2, random_state=split)
 
         yn_train = yn_train.astype(int)
         yn_test = yn_test.astype(int)
 
-        p_y_x_dict =  calculate_prior(yn_train, noise_type = noise_type, group=group_train) #Clean prior
+        y_train = y_train.astype(int)
+        y_test = y_test.astype(int)
 
-        T_dict = generate_T_dict(power, groups, noise_level)
+        p_y_x_dict =  calculate_prior(yn_train, group=group_train) #Clean prior
 
-        (disagreement_train, 
-        disagreement_test, 
+        T_dict = generate_T_dict(power, p_value, groups, noise_level)
+
+        (
         ambiguity_train, 
         ambiguity_test, 
-        new_ambiguity_train, 
-        new_ambiguity_test) = run_procedure(n_models, 
+        unanticipated_mistake_val) = run_procedure(n_models, 
                                             max_iter, 
                                             X_train, 
                                             yn_train, 
                                             X_test, 
-                                            yn_test, 
+                                            y_test, 
                                             p_y_x_dict, 
                                             group_train = group_train, 
                                             group_test = group_test, 
-                                            noise_type = noise_type, 
+                                            noise_type = "group", 
                                             model_type = model_type, 
                                             T = T_dict, 
                                             epsilon = epsilon, 
-                                            misspecify = False)
+                                            misspecify = True)
 
         model, (train_acc,
                         test_acc,
@@ -161,22 +176,18 @@ def generate_abstain_data_enhancer(n_models, max_iter, model_type = "LR", epsilo
                         train_loss,
                         test_loss,
                         train_preds,
-                        test_preds) = train_model_ours_regret(X_train, yn_train, X_test, yn_test, seed = 2024, model_type=model_type)
+                        test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
 
         losses.append("BCE")
-        dis_train.append(disagreement_train)
         amb_train.append(ambiguity_train)
-        new_amb_train.append(new_ambiguity_train)
         probs_train.append(train_probs)
 
-        dis_test.append(disagreement_test)
         amb_test.append(ambiguity_test)
-        new_amb_test.append(new_ambiguity_test)
         probs_test.append(test_probs)
         splits.append(split)
 
 
-    data = {'loss': losses, "disagreement_test":dis_test, "new_ambiguity_train":new_amb_train, "new_ambiguity_test":new_amb_test, "ambiguity_train":amb_train,  "ambiguity_test":amb_test, "disagreement_train":dis_train ,"test_probs":probs_test, "train_probs":probs_train, "split":splits}
+    data = {'loss': losses,   "ambiguity_train":amb_train,  "ambiguity_test":amb_test,"test_probs":probs_test, "train_probs":probs_train, "split":splits}
     
     return data
 
@@ -291,10 +302,10 @@ def calculate_metrics_abstain_enhancer(data, noise_level = 0.1, model_type="LR")
     methods = []
     splits = []
     
-    features, noisy_labels, power, groups = load_enhancer()
+    features, labels, noisy_labels, power, p_value, effect, groups = load_enhancer()
     
     for split in [2024, 2025, 2026, 2027, 2028]:
-        X_train, X_test, yn_train, yn_test, group_train, group_test = enhancer_train_test_split(features, noisy_labels, groups, test_size=0.2, random_state=split)
+        X_train, X_test, y_train, y_test, yn_train, yn_test, group_train, group_test = enhancer_train_test_split(features, labels, noisy_labels, effect, test_size=0.2, random_state=split)
 
         yn_train = yn_train.astype(int)
         yn_test = yn_test.astype(int)
@@ -311,7 +322,7 @@ def calculate_metrics_abstain_enhancer(data, noise_level = 0.1, model_type="LR")
             metric_lis = ['noisy_auprc', 'noisy_risk']
             
             ambiguity = np.clip(sub_df.ambiguity_test.values[0] / 100, 0, 1)
-            new = np.clip(sub_df.new_ambiguity_test.values[0] / 100, 0, 1)
+         
             probs = sub_df.test_probs.values[0]
 
             if probs.ndim == 2:
@@ -325,7 +336,7 @@ def calculate_metrics_abstain_enhancer(data, noise_level = 0.1, model_type="LR")
 
             for method in ["Ambiguity", "Confidence"]: #["Ambiguity", "Confidence", "Random"]:
                 if method == "Ambiguity":
-                    criteria = new
+                    criteria = ambiguity
                 elif method == "Confidence":
                     criteria = uncertainty
                 else:
@@ -369,7 +380,7 @@ def calculate_metrics_abstain_enhancer(data, noise_level = 0.1, model_type="LR")
 
 def plot_enhancer_metrics(data, loss_type="BCE", group=False):
     # Calculate the delta risk and delta auprc for abstention rate = 0
-    data["abstention"] = 100 - data["coverage"]
+    data["abstention"] = data["coverage"]
     
     # Define your custom color palette for each method
     method_colors = {
@@ -417,10 +428,10 @@ def plot_enhancer_metrics(data, loss_type="BCE", group=False):
         if metric == "noisy_risk":
             method_data["delta"]= (method_data["delta"]*-1)
         
-        method_data["threshold"]= (method_data["threshold"]*100)
+        method_data["threshold"]= 100-(method_data["threshold"]*100)
         sns.lineplot(data=method_data, x="threshold", y="delta", hue = "method", ax=ax, palette=method_colors)
         ax.legend().remove()  
-        ax.set_xlabel("Abstention Rate %", fontsize=14)
+        ax.set_xlabel("Coverage Rate %", fontsize=14)
         ax.set_ylabel(y_labels[metric], fontsize=14)  # Use Δ symbol for delta
         #ax.set_title(f"{metric.replace('delta_', 'Δ ')}", fontsize=16)
         ax.grid(True, which='both', color='grey', linestyle='-', linewidth=0.5)

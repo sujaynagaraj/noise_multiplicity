@@ -1,3 +1,6 @@
+import sys
+sys.path.insert(0,'..')
+
 
 import numpy as np
 import pickle as pkl
@@ -8,6 +11,9 @@ from sklearn.utils import shuffle, resample
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 import pandas as pd
 import os
+
+from src.enhancer import *
+
 
 def load_metrics(model_type, noise_type, uncertainty_type, metric, group = "age",  dataset = 'cshock_eicu', fixed_class = None, fixed_noise = None, epsilon = 0.1):
     
@@ -304,7 +310,7 @@ def load_dataset_splits(dataset, group=""):
 
     return X_train, X_test, y_train, y_test, group_train, group_test
 
-def enhancer_train_test_split(features, labels, groups, test_size=0.2, random_state=None):
+def enhancer_train_test_split(features, labels, noisy_labels, effect, test_size=0.2, random_state=None):
     """
     Custom train-test split function that splits data at the group level.
 
@@ -320,6 +326,8 @@ def enhancer_train_test_split(features, labels, groups, test_size=0.2, random_st
     """
     if random_state is not None:
         np.random.seed(random_state)
+
+    features, labels, noisy_labels , power,  p_value, effect, groups = load_enhancer()
 
     # Initialize lists to hold train and test indices
     train_indices = []
@@ -345,9 +353,11 @@ def enhancer_train_test_split(features, labels, groups, test_size=0.2, random_st
     # Split the data
     X_train, X_test = features[train_indices], features[test_indices]
     y_train, y_test = labels[train_indices], labels[test_indices]
+    yn_train, yn_test = noisy_labels[train_indices], noisy_labels[test_indices]
+    effect_train, effect_test = effect[train_indices], effect[test_indices]
     group_train, group_test = groups[train_indices], groups[test_indices]
 
-    return X_train, X_test, y_train, y_test, group_train, group_test
+    return X_train, X_test, y_train, y_test, yn_train, yn_test, effect_train, effect_test, group_train, group_test
 
 
 

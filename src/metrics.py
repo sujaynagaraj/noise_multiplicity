@@ -72,6 +72,26 @@ def calculate_robustness_rate(predicted_probabilities, epsilon=0.01):
     robustness_rate = np.mean(is_robust)
     return robustness_rate
 
+def calculate_ambiguity(preds, labels):
+    """
+    Calculate ambiguity for each instance based on model disagreement.
+
+    Args:
+        train_preds (numpy.ndarray): Array of shape (m, k) where m is the number of models and k is the number of instances.
+        plausible_labels (numpy.ndarray): Array of shape (m, k) representing plausible labels for each model-instance pair.
+
+    Returns:
+        numpy.ndarray: A (k,) array representing ambiguity scores for each instance.
+    """
+    # Compute disagreement: 1 if prediction disagrees with plausible label, 0 otherwise
+    disagreement = (preds != labels).astype(int)
+    
+    # Compute ambiguity as the fraction of models that disagree per instance
+    ambiguity = np.mean(disagreement, axis=0)
+
+    return ambiguity
+
+
 def estimate_disagreement(predicted_probabilities):
     # Number of models
     m = predicted_probabilities.shape[0]
@@ -85,6 +105,7 @@ def estimate_disagreement(predicted_probabilities):
     mu_hat = 4* (m / (m - 1)) * p_hat * (1 - p_hat)
     
     return mu_hat*100
+
 
 def disagreement_percentage(disagreement_rates, threshold):
     """
@@ -236,3 +257,132 @@ def regret_FPR_FNR(err_true, err_anticipated):
     return fp_rate, false_positives, fn_rate, false_negatives
 
 
+import numpy as np
+
+def compute_majority_vote(probs_test):
+    """
+    Compute uncertainty based on majority vote disagreement.
+
+    Args:
+        probs_test (numpy.ndarray): Shape (m, k) where m = number of models, k = number of instances.
+
+    Returns:
+        numpy.ndarray: Uncertainty scores for each instance (shape: (k,))
+    """
+    m, k = probs_test.shape  # Number of models, Number of instances
+
+    # Convert probabilities to binary predictions (1 if >0.5, else 0)
+    binary_preds = (probs_test > 0.5).astype(int)  # Shape: (m, k)
+
+    # Count votes for class 1
+    vote_count = np.sum(binary_preds, axis=0)  # Shape: (k,)
+
+    # Compute absolute distance from perfect uncertainty (m/2)
+    distance_from_half = np.abs(vote_count - (m / 2))
+
+    # Normalize confidence: 1 when all agree, 0 when split evenly
+    confidence = (2 * distance_from_half) / m
+
+    # Compute uncertainty: 1 - confidence
+    uncertainty_test = 1 - confidence
+
+    return uncertainty_test
+
+
+def compute_loo(probs_test):
+    """
+    Compute ambiguity by randomly selecting one model's probabilities for all instances 
+    and measuring disagreement across other models.
+
+    Args:
+        probs_test (numpy.ndarray): Shape (m, k), where:
+            - m = number of models
+            - k = number of instances
+
+    Returns:
+        numpy.ndarray: Ambiguity scores for each instance (shape: (k,))
+    """
+    m, k = probs_test.shape  # Number of models, Number of instances
+
+    # Convert probabilities to binary predictions (1 if >0.5, else 0)
+    binary_preds = (probs_test > 0.5).astype(int)  # Shape: (m, k)
+
+    # Randomly select ONE model (row) for all instances
+    selected_model_idx = np.random.randint(0, m)  # Choose one model index
+    selected_preds = binary_preds[selected_model_idx]  # Shape: (k,)
+
+    # Compute disagreement: Fraction of models that disagree with selected model
+    disagreement = (binary_preds != selected_preds)  # Boolean matrix (m, k)
+
+    # Compute ambiguity: Fraction of models that disagree per instance
+    ambiguity_scores = np.mean(disagreement, axis=0)  # Shape: (k,)
+
+    return ambiguity_scores
+
+
+
+def conformal_prediction_plausible(plausible_probs, train_probs, plausible_labels, alpha=0.1):
+    """
+    Compute conformal prediction sets per model and per instance, along with ambiguity scores.
+
+    Args:
+        plausible_probs (numpy.ndarray): Probabilities of plausible models for test set (m, k).
+        train_probs (numpy.ndarray): Probabilities of plausible models for calibration set (m, n).
+        plausible_labels (numpy.ndarray): Labels assigned by each model for the calibration set (m, n).
+        alpha (float): Confidence level (e.g., 0.1 for 90% confidence).
+
+    Returns:
+        numpy.ndarray: Confidence scores for test instances (shape: (k,)).
+        numpy.ndarray: Prediction sets per model and per test instance (shape: (m, k)).
+        numpy.ndarray: Ambiguity scores (fraction of models where prediction set contains both `0` and `1`).
+    """
+    m, n = train_probs.shape  # Number of models, calibration instances
+    k = plausible_probs.shape[1]  # Number of test instances
+
+    # 1: Compute conformal scores for each model based on plausible labels
+    cal_scores = 1 - np.where(plausible_labels == 1, train_probs, 1 - train_probs)  # Shape (m, n)
+
+    # 2: Compute quantile threshold q_hat per model
+    q_level = np.ceil((n + 1) * (1 - alpha)) / n  # Adjusted quantile level
+    qhat = np.quantile(cal_scores, q_level, axis=1, method="higher")  # Shape: (m,)
+
+    # 3: Compute test set probabilities per model
+    test_probs = plausible_probs  # Shape (m, k)
+
+    # 4: Compute prediction sets per model and per test instance
+    prediction_sets = np.empty((m, k), dtype=object)  # Shape (m, k), store sets
+
+    for model_idx in range(m):
+        for instance_idx in range(k):
+            prediction = set()
+            if test_probs[model_idx, instance_idx] >= (1 - qhat[model_idx]):
+                prediction.add(1)  # Include class 1
+            if (1 - test_probs[model_idx, instance_idx]) >= (1 - qhat[model_idx]):
+                prediction.add(0)  # Include class 0
+            prediction_sets[model_idx, instance_idx] = prediction
+
+    # 5: Compute ambiguity scores (fraction of models where prediction set contains {0,1})
+    ambiguity_scores = np.mean(
+        [[{0,1} == prediction_sets[m, i] for m in range(m)] for i in range(k)], axis=1
+    )  # Shape (k,)
+
+    # 6: Compute confidence scores as the mean probability per test instance
+    confidence_scores = np.mean(test_probs, axis=0)  # Shape (k,)
+
+    return confidence_scores, prediction_sets, ambiguity_scores
+
+from scipy.stats import entropy
+
+def compute_entropy_score(probs_test):
+    """
+    Compute uncertainty using binary entropy.
+
+    Args:
+        probs_test (numpy.ndarray): Shape (m, k), where each value is P(y=1|X).
+
+    Returns:
+        numpy.ndarray: Entropy scores for each instance (shape: (k,))
+    """
+    mean_probs = np.mean(probs_test, axis=0)  # Average probability across models
+    entropy_scores = - (mean_probs * np.log(mean_probs + 1e-10) + (1 - mean_probs) * np.log(1 - mean_probs + 1e-10))
+    return entropy_scores
