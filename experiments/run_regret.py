@@ -30,7 +30,7 @@ import timeit
 parser = argparse.ArgumentParser('regret')  
 
 parser.add_argument('--n_models', type =int, default=100, help="number of models to train")
-parser.add_argument('--n_draws', type =int, default=10, help="number of noise draws")
+parser.add_argument('--n_draws', type =int, default=5, help="number of noise draws")
 parser.add_argument('--noise_type', type=str, default="class_independent", help="specify type of label noise")
 parser.add_argument('--noise_level', type =float, default=0.2, help="noise level")
 parser.add_argument('--max_iter', type =int, default=10000, help="max iterations to check for typical vec")
@@ -103,7 +103,7 @@ if __name__ == '__main__':
         else:
             print("invalid type")
 
-        for training_loss in ["None", "forward", "backward"]:
+        for training_loss in ["None", "backward"]:
             vectors = run_experiment(dataset=dataset, noise_type=noise_type, model_type=model_type, n_models=n_models, max_iter=max_iter, training_loss=training_loss, T=T_est, n_draws = n_draws, batch_size = batch_size)
         
             path = os.path.join(files_path, f"{training_loss}_{noise_level}_{epsilon}_vectors.pkl")
@@ -116,7 +116,7 @@ if __name__ == '__main__':
 
     elif noise_type == "class_conditional":
         fixed_classes = [0]
-        fixed_noises = [0.0, 0.1]
+        fixed_noises = [0.0]
 
         for fixed_class in fixed_classes:
             for i, fixed_noise in enumerate(fixed_noises):
@@ -132,8 +132,9 @@ if __name__ == '__main__':
                 else:
                     print("invalid type")
 
-                for training_loss in ["None", "forward", "backward"]:
-                    vectors = run_experiment(dataset=dataset, noise_type=noise_type, model_type=model_type, n_models=n_models, max_iter=max_iter, training_loss=training_loss, T=T_est, n_draws = n_draws)
+                for training_loss in ["None", "backward"]:
+                    print(training_loss)
+                    vectors = run_experiment(dataset=dataset, noise_type=noise_type, model_type=model_type, n_models=n_models, max_iter=max_iter, training_loss=training_loss, T=T_est, n_draws = n_draws, batch_size = batch_size)
         
                     path = os.path.join(files_path, f"{training_loss}_{noise_level}_{fixed_class}_{fixed_noise}_{epsilon}_vectors.pkl")
 

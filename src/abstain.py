@@ -61,13 +61,16 @@ def run_procedure_abstain(m, max_iter, X_train, yn_train, X_test, yn_test, y_tes
         u_all = infer_u(yn_all, group=group_all, noise_type=noise_type, 
                         p_y_x_dict=p_y_x_dict, T=T, seed=seed)
 
-        # Check if noise follows a typical pattern
+        # Typicality Check
         if not misspecify and noise_type != "group":
             typical_flag, _ = is_typical(u_all, p_y_x_dict, group=group_all,  
                                          T=T, y_vec=yn_all, noise_type=noise_type, 
                                          uncertainty_type="backward", epsilon=epsilon)
         else:
             typical_flag = True  # Default to True when misspecified or using "group" noise
+        
+        if not typical_flag:
+            continue
         
         # Flip labels based on noise model
         yhat_all = flip_labels(yn_all, u_all)
@@ -282,7 +285,7 @@ def metrics_active_learning(dataset, noise_type, model_type, data, fixed_class=0
     unique_draw_ids = df["draw_id"].unique()
 
     metric_lis = ["risk","regret", "fpr", "fnr"]
-    abstain_percentages = np.linspace(0, 0.99, 5)
+    abstain_percentages = np.linspace(0, 0.99, 100)
 
     for noise_level in unique_noise_levels:
         # Generate noise transition matrix
@@ -316,7 +319,9 @@ def metrics_active_learning(dataset, noise_type, model_type, data, fixed_class=0
                 
                 # Compute training abstention criteria
                 ambiguity_train = calculate_ambiguity(preds_train, plausible_labels_train)
-                uncertainty_train = 1 - np.max(model_probs_train, axis=1)
+                #uncertainty_train = 1 - np.max(model_probs_train, axis=1)
+                mean_probs_plausible = np.mean(probs_train, axis=0)
+                uncertainty_train = 1 - (np.abs(mean_probs_plausible - 0.5) * 2)
                 
                 # Compute test abstention criteria
                 ambiguity_test = calculate_ambiguity(preds_test, plausible_labels_test)
@@ -357,7 +362,7 @@ def metrics_active_learning(dataset, noise_type, model_type, data, fixed_class=0
                     # Loop over training criteria methods
                     for method_name, crit in [("confidence", uncertainty_train),
                                                 ("ambiguity", ambiguity_train)]:
-                        for exp_type in ["relabel", "drop"]:
+                        for exp_type in ["drop"]:
                             
                             abstain_count = int(abstain_pct * len(X_train))
                             abstain = abstain_order(crit, abstain_count)
@@ -397,7 +402,7 @@ def metrics_active_learning(dataset, noise_type, model_type, data, fixed_class=0
                                  
                             except:
                                 
-                                continue
+                                break
 
     return pd.DataFrame(results)
 

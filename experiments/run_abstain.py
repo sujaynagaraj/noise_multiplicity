@@ -14,6 +14,7 @@ from random import SystemRandom
 
 
 from src.models import *
+from src.abstain import *
 from src.loss_functions import *
 from src.noise import *
 from src.metrics import *
@@ -183,107 +184,107 @@ if __name__ == '__main__':
 
     elif noise_type == "class_conditional":
         classes = [0]
-        noises = [0.0, 0.1]
+        noises = [0.0]
+        noise_levels, fixed_classes, fixed_noises, losses, draw_ids = [], [], [], [], []
 
-        noise_levels = []
-        fixed_classes = []
-        fixed_noises = []
-        losses = []
-      
-        amb_train = []
-        actual_train = []
-        unanticipated_train = []
-        unanticipated_retrain =[]
-        probs_train = []
+        plausible_labels_train_all, plausible_labels_test_all  = [], []
+        preds_train_all, preds_test_all =  [], []
+        probs_train_all, probs_test_all = [], []
 
-        amb_test = []
-        probs_test = []
-        draw_ids = []
+        final_model_probs_train_all, final_model_probs_test_all = [], []
 
+        # Iterate over different noise conditions
         for fixed_class in classes:
-            for i, fixed_noise in enumerate(noises):
-                for noise_level in [0.05, 0.2,  0.4]:
+            for fixed_noise in noises:
+                for noise_level in [0.05, 0.2, 0.4]:
+                    
+                    # Generate noise transition matrix
+                    _, T_train = generate_class_conditional_noise(y_train, noise_level, fixed_class, fixed_noise)
+                    _, T_test = generate_class_conditional_noise(y_test, noise_level, fixed_class, fixed_noise)
 
-                    _, T_true = generate_class_conditional_noise(y_train, noise_level, fixed_class, fixed_noise)
-
-
-                    if misspecify == "correct": #Estimate more noise than true T
-                        T_est = T_true
-
-
-            
+                    # Determine misspecified noise matrix
+                    if misspecify == "correct":
+                        T_est = T_train
                         misspecify_flag = False
-                    else : 
-                        T_est = np.array([[T_true[1, 1], T_true[1, 0]], 
-                                        [T_true[0, 1], T_true[0, 0]]]) 
+                    else:
+                        T_est = np.array([[T_train[1, 1], T_train[1, 0]], 
+                                         [T_train[0, 1], T_train[0, 0]]]) 
                         misspecify_flag = True
 
+                    # Loop over multiple draws
                     for seed in range(5):
-                        u_vec = get_u(y_train, T = T_true, seed= seed, noise_type = noise_type)
-                        yn_train = flip_labels(y_train, u_vec) #XOR
                         
-                        (ambiguity_train, 
-                        ambiguity_test, 
-                        unanticipated) = run_procedure(n_models, max_iter, X_train, yn_train, X_test, y_test, p_y_x_dict, group_train = group_train, group_test = group_test, noise_type = noise_type, model_type = model_type, T = T_est, epsilon = epsilon, misspecify = misspecify_flag)
+                        # Step 1: Merge y_train and y_test
+                        y_all = np.concatenate([y_train, y_test])  # Shape: (total_instances,)
 
-                        model, (train_acc,
-                                test_acc,
-                                train_probs,
-                                test_probs,
-                                train_loss,
-                                test_loss,
-                                train_preds,
-                                test_preds) = train_model_ours_regret(X_train, yn_train, X_test, y_test, seed = 2024, model_type=model_type)
+                        # Step 2: Generate a single noise vector for all instances
+                        u_all = get_u(y_all, T=T_train, seed=seed, noise_type=noise_type)  # Using T_train for now
 
-                        actual_mistakes, unanticipated_mistakes = get_uncertainty(n_models, max_iter, train_preds, yn_train, p_y_x_dict,group_train = group_train, group_test = group_test, noise_type=noise_type, model_type=model_type, T=T_est, epsilon=epsilon, misspecify=misspecify_flag)
-    
+                        # Step 3: Flip labels using the generated noise vector
+                        yn_all = flip_labels(y_all, u_all)
+
+                        # Step 4: Split back into train and test sets
+                        u_train, u_test = u_all[:len(y_train)], u_all[len(y_train):]
+                        yn_train, yn_test = yn_all[:len(y_train)], yn_all[len(y_train):]
+
+                        # Run main procedure
+                        plausible_labels_train, plausible_labels_test, preds_train, preds_test, probs_train, probs_test = run_procedure_abstain(
+                            n_models, max_iter, X_train, yn_train, X_test, yn_test, y_test, p_y_x_dict, 
+                            group_train=group_train, group_test=group_test, noise_type=noise_type, 
+                            model_type=model_type, T=T_est, epsilon=epsilon, misspecify=misspecify_flag
+                        )
+                        
+                        # Train final model on noisy labels
+                        model, (train_acc, test_acc, train_probs, test_probs, 
+                                train_loss, test_loss, train_preds, test_preds) = train_model_ours_regret(
+                            X_train, yn_train, X_test, y_test, seed=2024, model_type=model_type
+                        )
+
+                        # Store results
                         noise_levels.append(noise_level)
                         fixed_classes.append(fixed_class)
                         fixed_noises.append(fixed_noise)
                         losses.append("BCE")
-
-                        amb_train.append(ambiguity_train)
-                        
-                        unanticipated_train.append(unanticipated_mistakes)
-                        unanticipated_retrain.append(unanticipated)
-                        actual_train.append(actual_mistakes)
-                        probs_train.append(train_probs)
-
-
-                        amb_test.append(ambiguity_test)
-                        probs_test.append(test_probs)
                         draw_ids.append(seed)
-
                         
-                        for loss in ["backward", "forward"]:
-                            model, results = train_model(X_train, y_train, yn_train, X_test, y_test, T_est,  seed=2024, num_epochs=100, batch_size = batch_size, correction_type=loss, model_type = model_type)
-                            
-                            test_probs = results[7]
-                            train_probs = results[4]
+                        plausible_labels_train_all.append(plausible_labels_train)
+                        plausible_labels_test_all.append(plausible_labels_test)
+                        preds_train_all.append(preds_train)
+                        preds_test_all.append(preds_test)
+                        probs_train_all.append(probs_train)
+                        probs_test_all.append(probs_test)
+                        
+                        final_model_probs_train_all.append(train_probs)
+                        final_model_probs_test_all.append(test_probs)
 
-                            noise_levels.append(noise_level)
-                            fixed_classes.append(fixed_class)
-                            fixed_noises.append(fixed_noise)
-                            losses.append(loss)
+        # Convert results into a structured dictionary
+        data = {
+            "noise": noise_levels,
+            "loss": losses,
+            "plausible_labels_train": plausible_labels_train_all,
+            "plausible_labels_test": plausible_labels_test_all,
+            "probs_train": probs_train_all,
+            "probs_test": probs_test_all,
+            "preds_train": preds_train_all,
+            "preds_test": preds_test_all,
+            "final_model_probs_train": final_model_probs_train_all,
+            "final_model_probs_test": final_model_probs_test_all,
+            "fixed_noise": fixed_noises,
+            "fixed_class": fixed_classes,
+            "draw_id": draw_ids
+        }
 
-                            amb_train.append(ambiguity_train)
-                            unanticipated_train.append(unanticipated_mistakes)
-                            unanticipated_retrain.append(unanticipated)
-                            actual_train.append(actual_mistakes)
-                            probs_train.append(train_probs)
-
-
-                            amb_test.append(ambiguity_test)
-                            probs_test.append(test_probs)
-                            draw_ids.append(seed)
-
-        data = {'noise': noise_levels, 'loss': losses, "actual_train": actual_train , "unanticipated_retrain": unanticipated_retrain,"unanticipated_train": unanticipated_train , "ambiguity_train":amb_train, "ambiguity_test":amb_test, "test_probs":probs_test, "train_probs":probs_train, "fixed_noise":fixed_noises, "fixed_class":fixed_classes, "draw_id":draw_ids}
-
-        path = os.path.join(files_path, f"{epsilon}.pkl")
+        pkl_path = os.path.join(files_path, f"{epsilon}.pkl")
+        csv_path = os.path.join(files_path, "results.csv")
 
             # Open a file for writing in binary mode
-        with open(path, 'wb') as file:
+        with open(pkl_path, 'wb') as file:
             # Use pickle to write the dictionary to the file
             pkl.dump(data, file)
+
+        results_df = metrics_active_learning(dataset, noise_type, model_type, data)
+
+        results_df.to_csv(csv_path, index=False)
+
 
         print(timeit.default_timer() - start_time)

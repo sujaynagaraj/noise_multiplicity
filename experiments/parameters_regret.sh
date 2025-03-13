@@ -9,11 +9,11 @@ declare -a noise_levels=(0.05 0.2 0.4)
 declare -a misspecify_params_class_independent=("over" "under")
 declare -a misspecify_params_class_conditional=("flipped")
 
-for i in {0..1}
+for i in {1..1}
 do
     for j in {0..1}
     do
-        for k in {0..9}
+        for k in {0..4}
         do
             for h in {0..2}
             do
