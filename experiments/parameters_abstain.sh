@@ -10,7 +10,7 @@ declare -a misspecify_params_class_conditional=("flipped")
 
 for i in {0..0}
 do
-    for j in {0..1}
+    for j in {1..1}
     do
         for k in {0..4}
         do
